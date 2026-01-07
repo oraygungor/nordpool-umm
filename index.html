@@ -126,6 +126,7 @@
             "EE": [58.80, 25.50], "LV": [57.00, 25.00], "LT": [55.30, 24.00]
         };
 
+        // Fuel Options with IDs for API filtering
         const FUEL_OPTIONS = [
             { label: "Wind Onshore", value: "windonshore", id: 19 },
             { label: "Wind Offshore", value: "windoffshore", id: 18 },
@@ -444,7 +445,8 @@
             // --- LOCAL FILTERS (VIEW) ---
             const [localSearchText, setLocalSearchText] = useState("");
             const [localZone, setLocalZone] = useState("");
-            const [localFuel, setLocalFuel] = useState("");
+            const [localFuels, setLocalFuels] = useState([]); // Multi-select
+            const [showLocalFuelDropdown, setShowLocalFuelDropdown] = useState(false);
 
             const [selectedGroup, setSelectedGroup] = useState(null);
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
@@ -463,6 +465,12 @@
 
             const toggleServerFuel = (value) => {
                 setServerSelectedFuels(prev => 
+                    prev.includes(value) ? prev.filter(f => f !== value) : [...prev, value]
+                );
+            };
+
+            const toggleLocalFuel = (value) => {
+                setLocalFuels(prev => 
                     prev.includes(value) ? prev.filter(f => f !== value) : [...prev, value]
                 );
             };
@@ -554,7 +562,6 @@
                 let totalEventsCount = 0;
 
                 const tableRows = [];
-                // The chart will show the full fetched range for context, but we can limit it too
                 const pubStartObj = new Date(serverPubStart);
                 const pubEndObj = new Date(serverPubEnd);
                 pubEndObj.setHours(23, 59, 59, 999);
@@ -572,16 +579,21 @@
 
                     const processPeriods = (unitName, zone, fuelType, periods, reason, remarks) => {
                          // LOCAL FILTERING LOGIC
-                         // 1. Local Search
+                         
+                         // 1. Local Search (Multi-term OR logic)
                          if (localSearchText) {
+                             const searchTerms = localSearchText.toLowerCase().split(',').map(s => s.trim()).filter(s => s);
                              const searchContent = `${unitName} ${reason} ${remarks} ${msg.messageId}`.toLowerCase();
-                             if (!searchContent.includes(localSearchText.toLowerCase())) return;
+                             const match = searchTerms.some(term => searchContent.includes(term));
+                             if (!match) return;
                          }
+
                          // 2. Local Zone
                          if (localZone && zone !== localZone) return;
-                         // 3. Local Fuel
+                         
+                         // 3. Local Fuel (Multi-select)
                          const fKey = getFuelKey(fuelType);
-                         if (localFuel && fKey !== localFuel) return;
+                         if (localFuels.length > 0 && !localFuels.includes(fKey)) return;
 
                          if (!periods || periods.length === 0) {
                              if (msg.eventStart && msg.eventStop) {
@@ -661,7 +673,7 @@
                 }));
 
                 return { totalMW: maxFoundMW * 1000, totalEvents: totalEventsCount, chartData, zoneStats, sortedDates, tableData: tableRows };
-            }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuel]); 
+            }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuels]); 
 
             return (
                 <div className="min-h-full pb-10 font-sans selection:bg-cyan-500 selection:text-white relative">
@@ -760,7 +772,13 @@
                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Local Search</label>
                                     <div className="relative group">
                                         <Icon name="Search" size={18} className="absolute left-3 top-3 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
-                                        <input type="text" value={localSearchText} onChange={(e) => setLocalSearchText(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none text-slate-200 placeholder-slate-600 transition-all" placeholder="Filter current view..." />
+                                        <input 
+                                            type="text" 
+                                            value={localSearchText} 
+                                            onChange={(e) => setLocalSearchText(e.target.value)} 
+                                            className="w-full pl-10 pr-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none text-slate-200 placeholder-slate-600 transition-all" 
+                                            placeholder="e.g. weather, ice" 
+                                        />
                                     </div>
                                 </div>
                                 <div>
@@ -770,12 +788,32 @@
                                         {Object.keys(ZONES).map(z => <option key={z} value={z}>{z}</option>)}
                                     </select>
                                 </div>
-                                <div>
+                                <div className="relative">
                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Local Fuel</label>
-                                    <select value={localFuel} onChange={(e) => setLocalFuel(e.target.value)} className="px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 outline-none text-slate-200 min-w-[160px]">
-                                        <option value="">All Fuels</option>
-                                        {FUEL_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
-                                    </select>
+                                    <button 
+                                        onClick={() => setShowLocalFuelDropdown(!showLocalFuelDropdown)} 
+                                        className="px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl flex items-center justify-between gap-3 min-w-[160px] hover:border-emerald-500/50 transition-all text-slate-200"
+                                    >
+                                        <span className="text-sm">{localFuels.length === 0 ? "All Fuels" : `${localFuels.length} Selected`}</span>
+                                        <Icon name="ChevronDown" size={16} />
+                                    </button>
+                                    {showLocalFuelDropdown && (
+                                        <div className="absolute top-full left-0 mt-2 w-64 bg-slate-900 rounded-xl shadow-2xl border border-slate-700 z-50 max-h-80 overflow-y-auto p-2">
+                                            <div onClick={() => setLocalFuels([])} className={`p-2.5 rounded-lg cursor-pointer text-sm font-medium mb-1 transition-colors ${localFuels.length === 0 ? 'bg-emerald-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}>All (No Filter)</div>
+                                            <div className="border-t border-slate-800 my-1"></div>
+                                            {FUEL_OPTIONS.map(opt => (
+                                                <label key={opt.value} className="flex items-center gap-3 p-2.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={localFuels.includes(opt.value)} 
+                                                        onChange={() => toggleLocalFuel(opt.value)} 
+                                                        className="rounded border-slate-600 bg-slate-950 text-emerald-500 focus:ring-offset-slate-900" 
+                                                    />
+                                                    <span className="text-sm text-slate-400">{opt.label}</span>
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex items-center gap-2 self-center ml-2 border-l border-slate-700 pl-4 h-10">
                                     <span className="text-xs font-bold text-slate-500 uppercase mr-2">Fetched Data:</span>
