@@ -347,8 +347,7 @@
             if (!group) return null;
 
             const nordPoolLink = `https://umm.nordpoolgroup.com/#/messages/${group.id}`;
-            const fuelKey = getFuelKey(group.fuelType);
-            const fuelIcon = getFuelIconConfig(fuelKey);
+            const fuelIcon = getFuelIconConfig(group.fuelType);
 
             return (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
@@ -413,6 +412,7 @@
                                 Event History / Messages
                             </h3>
                             
+                            {/* Updated Table Container with Horizontal Scroll */}
                             <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/30 overflow-x-auto">
                                 <table className="w-full text-sm min-w-[800px]">
                                     <thead>
@@ -461,6 +461,7 @@
                             </div>
                         </div>
                         
+                        {/* Footer */}
                         <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-xl flex justify-end">
                             <button 
                                 onClick={onClose}
@@ -488,8 +489,9 @@
             const [showFuelDropdown, setShowFuelDropdown] = useState(false);
             const [selectedGroup, setSelectedGroup] = useState(null);
 
+            // STATE for fetch control
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
-            const [data, setData] = useState([]); 
+            const [data, setData] = useState([]); // Raw data
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
             const [useMock, setUseMock] = useState(false);
@@ -511,9 +513,10 @@
             const fetchData = async () => {
                 setLoading(true);
                 setError(null);
-                setData([]); 
+                setData([]); // Clear current data view
 
                 if (useMock) {
+                    // Simulate fetch
                     setTimeout(() => { 
                         setData(generateMockData(pubStart, pubEnd)); 
                         setLastFetchedDates({ start: pubStart, end: pubEnd });
@@ -525,20 +528,22 @@
                 try {
                     const url = new URL("https://ummapi.nordpoolgroup.com/messages");
                     
-                    // --- API PARAMETERS (FILTER PREFIX) ---
+                    // --- API PARAMETERS (FILTER PREFIX IMPLEMENTATION) ---
+                    // Updated to use server-side filtering logic
                     
                     // 1. Date Filters (ISO 8601 with Time and Z)
+                    // Note: 'filter.' prefix enables server-side filtering
                     url.searchParams.append("filter.publicationStartDate", pubStart + "T00:00:00Z");
                     url.searchParams.append("filter.publicationStopDate", pubEnd + "T23:59:59Z");
                     url.searchParams.append("filter.eventStartDate", "1970-01-01T00:00:00Z");
                     url.searchParams.append("filter.eventStopDate", "2126-01-07T23:59:59Z");
 
-                    // 2. Text Filter
+                    // 2. Text Filter (Server-side)
                     if (searchText) {
                         url.searchParams.append("filter.searchText", searchText);
                     }
 
-                    // 3. Fuel Type Filter (Comma separated IDs)
+                    // 3. Fuel Type Filter (Server-side)
                     if (selectedFuels.length > 0) {
                         // Map selected string values (e.g. "windonshore") back to IDs (e.g. 19)
                         const fuelIds = selectedFuels.map(val => {
@@ -547,11 +552,12 @@
                         }).filter(id => id !== null);
                         
                         if (fuelIds.length > 0) {
+                            // Passing as comma-separated string for server-side filter
                             url.searchParams.append("filter.fuelTypes", fuelIds.join(","));
                         }
                     }
 
-                    // 4. Other Options
+                    // 4. Other Options (Server-side)
                     url.searchParams.append("filter.includeOutdated", includeOutdated ? "true" : "false");
                     url.searchParams.append("filter.limit", "2000"); // Max page size
                     url.searchParams.append("filter.orderFields", "PublicationDate");
@@ -571,6 +577,7 @@
 
                     if (items.length > 0) {
                         setData(items);
+                        // Update fetched tracking
                         setLastFetchedDates({ start: pubStart, end: pubEnd });
                     }
                     else throw new Error("No data found matching your filters.");
@@ -583,11 +590,11 @@
                 }
             };
 
-            // Don't auto-fetch on mount if you prefer manual trigger, but UI usually expects data.
-            // Let's keep auto-fetch on mount for better UX.
+            // Auto-fetch on mount
             useEffect(() => { fetchData(); }, []);
 
-            // Client-side grouping only (filtering happens on server now)
+            // Data Processing & Grouping
+            // Note: Since filtering is now done on server-side, this memo mainly groups the returned data.
             const analysis = useMemo(() => {
                 if (!data || !Array.isArray(data) || data.length === 0) return null;
 
@@ -599,6 +606,8 @@
                 let totalEvents = 0;
 
                 const groupedEvents = {};
+                // Filter data for charts to ensure we only show data from pubStart onwards
+                const sortedDates = [];
 
                 data.forEach(msg => {
                     totalEvents += 1;
@@ -660,10 +669,13 @@
                                         const stop = new Date(t.eventStop);
                                         while (current <= stop) {
                                             const dateStr = current.toISOString().split('T')[0];
-                                            if (!dailyMW[dateStr]) dailyMW[dateStr] = 0;
-                                            if (!dailyCount[dateStr]) dailyCount[dateStr] = 0;
-                                            dailyMW[dateStr] += mw; 
-                                            dailyCount[dateStr] += 1;
+                                            // Only include in daily stats if date is >= pubStart
+                                            if (dateStr >= pubStart) {
+                                                if (!dailyMW[dateStr]) dailyMW[dateStr] = 0;
+                                                if (!dailyCount[dateStr]) dailyCount[dateStr] = 0;
+                                                dailyMW[dateStr] += mw; 
+                                                dailyCount[dateStr] += 1;
+                                            }
                                             current.setDate(current.getDate() + 1);
                                         }
                                     }
@@ -684,15 +696,18 @@
                 });
 
                 const tableData = Object.values(groupedEvents).sort((a, b) => b.maxCap - a.maxCap);
-                const sortedDates = Object.keys(dailyMW).sort();
-                const chartData = sortedDates.map(date => ({
+                
+                // Get sorted dates from dailyMW which is already filtered
+                const finalSortedDates = Object.keys(dailyMW).sort();
+
+                const chartData = finalSortedDates.map(date => ({
                     date,
                     mw: dailyMW[date],
                     events: dailyCount[date]
                 }));
 
-                return { totalMW, totalEvents, chartData, zoneStats, sortedDates, tableData };
-            }, [data]); // Only re-run if data changes
+                return { totalMW, totalEvents, chartData, zoneStats, sortedDates: finalSortedDates, tableData };
+            }, [data, pubStart]); // Re-run if pubStart changes to update chart
 
             const isDateChanged = pubStart !== lastFetchedDates.start || pubEnd !== lastFetchedDates.end;
             // Now we disable button if loading OR if dates haven't changed AND no other filters changed?
