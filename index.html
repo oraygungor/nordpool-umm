@@ -197,6 +197,7 @@
                 const mw = Math.floor(Math.random() * 1200) + 10;
                 const unitLetter = String.fromCharCode(65 + (i % 10));
                 
+                // Random fuel type from our list
                 const fuelObj = FUEL_OPTIONS[Math.floor(Math.random() * FUEL_OPTIONS.length)];
                 
                 return {
@@ -447,6 +448,10 @@
             const [localZone, setLocalZone] = useState("");
             const [localFuels, setLocalFuels] = useState([]); // Multi-select
             const [showLocalFuelDropdown, setShowLocalFuelDropdown] = useState(false);
+            
+            // --- SORT STATE ---
+            // Default sort: By Start Time Ascending (Chronological)
+            const [sortConfig, setSortConfig] = useState({ key: 'start', direction: 'asc' });
 
             const [selectedGroup, setSelectedGroup] = useState(null);
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
@@ -473,6 +478,14 @@
                 setLocalFuels(prev => 
                     prev.includes(value) ? prev.filter(f => f !== value) : [...prev, value]
                 );
+            };
+
+            const requestSort = (key) => {
+                let direction = 'asc';
+                if (sortConfig.key === key && sortConfig.direction === 'asc') {
+                    direction = 'desc';
+                }
+                setSortConfig({ key, direction });
             };
 
             const fetchData = async () => {
@@ -663,7 +676,19 @@
                     }
                 });
 
-                tableRows.sort((a, b) => b.mw - a.mw);
+                // Apply Sorting
+                tableRows.sort((a, b) => {
+                    let aVal = a[sortConfig.key];
+                    let bVal = b[sortConfig.key];
+                    
+                    // Handle strings case-insensitive
+                    if (typeof aVal === 'string') aVal = aVal.toLowerCase();
+                    if (typeof bVal === 'string') bVal = bVal.toLowerCase();
+
+                    if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
+                    if (aVal > bVal) return sortConfig.direction === 'asc' ? 1 : -1;
+                    return 0;
+                });
                 
                 const sortedDates = Object.keys(dailyMW).sort();
                 const chartData = sortedDates.map(date => ({
@@ -673,7 +698,16 @@
                 }));
 
                 return { totalMW: maxFoundMW * 1000, totalEvents: totalEventsCount, chartData, zoneStats, sortedDates, tableData: tableRows };
-            }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuels]); 
+            }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuels, sortConfig]); 
+
+            // Helper to render sort icon
+            const SortIcon = ({ colKey }) => {
+                if (sortConfig.key !== colKey) return null;
+                return <Icon name={sortConfig.direction === 'asc' ? 'ChevronUp' : 'ChevronDown'} size={14} className="ml-1 text-blue-400" />;
+            };
+
+            const isDateChanged = serverPubStart !== lastFetchedDates.start || serverPubEnd !== lastFetchedDates.end;
+            const isAnalyzeDisabled = loading;
 
             return (
                 <div className="min-h-full pb-10 font-sans selection:bg-cyan-500 selection:text-white relative">
@@ -716,7 +750,7 @@
 
                     <div className="max-w-7xl mx-auto mt-8 px-4 space-y-6">
                         {/* SERVER FILTERS (API Fetch) */}
-                        <div className="bg-slate-900/80 p-5 rounded-2xl border border-blue-900/30 shadow-xl relative z-20">
+                        <div className="bg-slate-900/80 p-5 rounded-2xl border border-blue-900/30 shadow-xl relative z-30">
                             <div className="flex items-center gap-2 mb-4 text-blue-400 text-xs font-bold uppercase tracking-widest border-b border-blue-900/30 pb-2">
                                 <Icon name="Cloud" size={16} />
                                 Data Source & Fetching Parameters
@@ -762,7 +796,7 @@
                         </div>
 
                         {/* LOCAL FILTERS (View Only) */}
-                        <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 backdrop-blur-sm shadow-sm relative z-10">
+                        <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 backdrop-blur-sm shadow-sm relative z-20">
                             <div className="flex items-center gap-2 mb-4 text-emerald-400 text-xs font-bold uppercase tracking-widest border-b border-emerald-900/30 pb-2">
                                 <Icon name="Filter" size={16} />
                                 Dashboard View Filters (Local)
@@ -831,7 +865,7 @@
 
                         {/* Analysis Content */}
                         {analysis && !loading && (
-                            <div className="space-y-8 animate-fade-in relative z-10">
+                            <div className="space-y-8 animate-fade-in relative z-0">
                                 {/* KPI Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                                     <StatCard title="Events (Displayed)" value={analysis.tableData.length} sub="Filtered Segments" color="blue" iconName="Layers" />
@@ -889,7 +923,7 @@
                                         </h3>
                                         <div className="text-xs bg-purple-900/30 text-purple-300 border border-purple-900 px-3 py-1.5 rounded-lg flex items-center gap-2">
                                             <Icon name="Info" size={14} />
-                                            Click row for details
+                                            Click headers to sort
                                         </div>
                                     </div>
                                     
@@ -897,12 +931,12 @@
                                         <table className="min-w-full text-sm">
                                             <thead className="sticky top-0 bg-slate-900 shadow-xl z-10">
                                                 <tr className="text-left border-b border-slate-800 text-slate-400 font-bold uppercase text-xs tracking-wider">
-                                                    <th className="py-4 px-4 w-10">Type</th>
-                                                    <th className="py-4 px-4">Plant / Zone</th>
-                                                    <th className="py-4 px-4">Start</th>
-                                                    <th className="py-4 px-4">End (Est.)</th>
-                                                    <th className="py-4 px-4 text-center">Duration</th>
-                                                    <th className="py-4 px-4 text-right">Loss</th>
+                                                    <th className="py-4 px-4 w-10 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('fuelKey')}>Type <SortIcon colKey="fuelKey"/></th>
+                                                    <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('unitName')}>Plant / Zone <SortIcon colKey="unitName"/></th>
+                                                    <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('start')}>Start <SortIcon colKey="start"/></th>
+                                                    <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('stop')}>End (Est.) <SortIcon colKey="stop"/></th>
+                                                    <th className="py-4 px-4 text-center cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('durationMs')}>Duration <SortIcon colKey="durationMs"/></th>
+                                                    <th className="py-4 px-4 text-right cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('mw')}>Max Loss <SortIcon colKey="mw"/></th>
                                                     <th className="py-4 px-4">Reason</th>
                                                     <th className="py-4 px-4 w-10"></th>
                                                 </tr>
@@ -910,7 +944,8 @@
                                             <tbody className="divide-y divide-slate-800">
                                                 {analysis.tableData.slice(0, 100).map((row, i) => {
                                                     const durationMs = row.stop - row.start;
-                                                    const durationDays = (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
+                                                    // Duration in hours
+                                                    const durationHours = (durationMs / (1000 * 60 * 60)).toFixed(1);
                                                     const link = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
                                                     const iconConfig = getFuelIconConfig(row.fuelKey);
 
@@ -936,8 +971,8 @@
                                                             <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.start.toLocaleString()}</td>
                                                             <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.stop.toLocaleString()}</td>
                                                             <td className="py-4 px-4 text-center">
-                                                                <span className={`px-2 py-1 rounded text-xs font-bold ${Number(durationDays) > 10 ? 'bg-red-900/30 text-red-400 border border-red-900/50' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-900/50'}`}>
-                                                                    {durationDays} Days
+                                                                <span className={`px-2 py-1 rounded text-xs font-bold ${Number(durationHours) > 24 ? 'bg-red-900/30 text-red-400 border border-red-900/50' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-900/50'}`}>
+                                                                    {durationHours} Hours
                                                                 </span>
                                                             </td>
                                                             <td className="py-4 px-4 text-right font-bold text-slate-200">{row.mw.toFixed(0)} <span className="text-slate-500 text-xs font-normal">MW</span></td>
