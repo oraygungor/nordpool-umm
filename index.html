@@ -146,13 +146,11 @@
         const getFuelKey = (fuelTypeVal) => {
             if (!fuelTypeVal) return "unknown";
             
-            // If it's an ID (number), map to value string
             if (typeof fuelTypeVal === 'number') {
                 const opt = FUEL_OPTIONS.find(o => o.id === fuelTypeVal);
                 if (opt) return opt.value;
             }
             
-            // If string, try to normalize
             if (typeof fuelTypeVal === 'string') {
                 const lower = fuelTypeVal.toLowerCase().replace(/\s/g, '');
                 const opt = FUEL_OPTIONS.find(o => o.value.toLowerCase().replace(/\s/g, '') === lower);
@@ -297,6 +295,8 @@
                     Object.entries(stats).forEach(([zone, stat]) => {
                         const coords = ZONES[zone];
                         if (coords) {
+                            // Enhanced Heatmap Logic: Larger radius for larger MW
+                            // Base size 20000m, adds significantly more based on MW
                             const radius = 20000 + (Math.sqrt(stat.mw) * 2000); 
                             const color = getHeatmapColor(stat.mw); 
 
@@ -343,11 +343,11 @@
             );
         };
 
-        const EventDetailModal = ({ group, onClose }) => {
-            if (!group) return null;
+        const EventDetailModal = ({ row, onClose }) => {
+            if (!row) return null;
 
-            const nordPoolLink = `https://umm.nordpoolgroup.com/#/messages/${group.id}`;
-            const fuelIcon = getFuelIconConfig(group.fuelType);
+            const nordPoolLink = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
+            const fuelIcon = getFuelIconConfig(row.fuelKey);
 
             return (
                 <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
@@ -357,15 +357,12 @@
                             <div>
                                 <h2 className="text-xl font-bold text-white flex items-center gap-2">
                                     <Icon name={fuelIcon.name} className={fuelIcon.color} size={24} />
-                                    {group.unitName}
+                                    {row.unitName}
                                 </h2>
                                 <div className="flex items-center gap-3 mt-2 text-sm">
-                                    <span className="bg-blue-900/30 text-blue-400 border border-blue-900 px-2 py-0.5 rounded font-mono text-xs">{group.zone}</span>
+                                    <span className="bg-blue-900/30 text-blue-400 border border-blue-900 px-2 py-0.5 rounded font-mono text-xs">{row.zone}</span>
                                     <span className={`bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-xs flex items-center gap-1 ${fuelIcon.color}`}>
                                         {fuelIcon.label}
-                                    </span>
-                                    <span className="text-slate-400 flex items-center gap-1 text-xs">
-                                        <Icon name="FileText" size={14}/> {group.modificationCount} Revisions
                                     </span>
                                 </div>
                             </div>
@@ -390,74 +387,33 @@
 
                         {/* Content */}
                         <div className="overflow-y-auto p-6 custom-scrollbar">
-                            <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Max Capacity Loss</div>
-                                     <div className="text-2xl font-bold text-red-400">{group.maxCap.toFixed(1)} <span className="text-sm text-slate-500">MW</span></div>
+                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Capacity Loss (This Period)</div>
+                                     <div className="text-2xl font-bold text-red-400">{row.mw.toFixed(1)} <span className="text-sm text-slate-500">MW</span></div>
                                 </div>
                                 <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Primary Reason</div>
-                                     <div className="text-sm font-medium text-slate-200">{group.unavailabilityReason || "Not Specified"}</div>
-                                </div>
-                                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Date Range</div>
+                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Specific Time Period</div>
                                      <div className="text-sm font-mono text-slate-300">
-                                        {new Date(group.minStart).toLocaleDateString()} - {new Date(group.maxStop).toLocaleDateString()}
+                                        {row.start.toLocaleString()} - {row.stop.toLocaleString()}
                                      </div>
                                 </div>
                             </div>
 
                             <h3 className="font-bold text-slate-200 mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
-                                <Icon name="Layers" size={16} className="text-purple-400"/>
-                                Event History / Messages
+                                <Icon name="FileText" size={16} className="text-purple-400"/>
+                                Details
                             </h3>
                             
-                            {/* Updated Table Container with Horizontal Scroll */}
-                            <div className="border border-slate-700 rounded-lg overflow-hidden bg-slate-800/30 overflow-x-auto">
-                                <table className="w-full text-sm min-w-[800px]">
-                                    <thead>
-                                        <tr className="bg-slate-800 text-slate-400 text-left text-xs uppercase font-semibold tracking-wider">
-                                            <th className="p-3 pl-4 whitespace-nowrap">Pub Time</th>
-                                            <th className="p-3 whitespace-nowrap">Capacity</th>
-                                            <th className="p-3 whitespace-nowrap">Start</th>
-                                            <th className="p-3 whitespace-nowrap">End</th>
-                                            <th className="p-3 min-w-[200px]">Reason</th>
-                                            <th className="p-3 min-w-[250px]">Remarks</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-700/50">
-                                        {group.messages.map((m, idx) => {
-                                                let cap = 0;
-                                                let s = "";
-                                                let e = "";
-                                                if(m.productionUnits && m.productionUnits[0] && m.productionUnits[0].timePeriods){
-                                                    const tp = m.productionUnits[0].timePeriods[0];
-                                                    cap = parseFloat(tp.unavailableCapacity);
-                                                    s = new Date(tp.eventStart).toLocaleString();
-                                                    e = new Date(tp.eventStop).toLocaleString();
-                                                } else {
-                                                    cap = parseFloat(m.unavailableCapacity) || 0;
-                                                    s = new Date(m.eventStart).toLocaleString();
-                                                    e = new Date(m.eventStop).toLocaleString();
-                                                }
-
-                                                return (
-                                                <tr key={idx} className="hover:bg-slate-700/30 transition">
-                                                    <td className="p-3 pl-4 font-mono text-slate-400 text-xs whitespace-nowrap">{new Date(m.publicationDate).toLocaleString()}</td>
-                                                    <td className="p-3 font-bold text-red-400 whitespace-nowrap">{cap.toFixed(1)} MW</td>
-                                                    <td className="p-3 text-slate-400 text-xs whitespace-nowrap">{s}</td>
-                                                    <td className="p-3 text-slate-400 text-xs whitespace-nowrap">{e}</td>
-                                                    <td className="p-3 text-slate-300 text-xs whitespace-normal break-words">
-                                                        {m.unavailabilityReason || "-"}
-                                                    </td>
-                                                    <td className="p-3 text-slate-500 italic text-xs whitespace-normal break-words">
-                                                        {m.remarks}
-                                                    </td>
-                                                </tr>
-                                                );
-                                        })}
-                                    </tbody>
-                                </table>
+                            <div className="bg-slate-800/30 border border-slate-700 rounded-lg p-4 space-y-4">
+                                <div>
+                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Reason</h4>
+                                    <p className="text-slate-200 text-sm">{row.reason || "Not Specified"}</p>
+                                </div>
+                                <div>
+                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Remarks</h4>
+                                    <p className="text-slate-300 text-sm italic">{row.remarks || "No remarks"}</p>
+                                </div>
                             </div>
                         </div>
                         
@@ -593,8 +549,7 @@
             // Auto-fetch on mount
             useEffect(() => { fetchData(); }, []);
 
-            // Data Processing & Grouping
-            // Note: Since filtering is now done on server-side, this memo mainly groups the returned data.
+            // Data Processing: Flatten messages into time periods
             const analysis = useMemo(() => {
                 if (!data || !Array.isArray(data) || data.length === 0) return null;
 
@@ -602,117 +557,122 @@
                 const dailyCount = {};
                 const zoneStats = {};
                 
-                let totalMW = 0;
-                let totalEvents = 0;
+                let maxFoundMW = 0; 
+                let totalEventsCount = 0;
 
-                const groupedEvents = {};
-                // Filter data for charts to ensure we only show data from pubStart onwards
-                const sortedDates = [];
+                const tableRows = [];
+                const filterStartDate = new Date(pubStart);
+                // Important: PubEnd is typically YYYY-MM-DD, we need to compare against the end of that day
+                const filterEndDate = new Date(pubEnd);
+                filterEndDate.setHours(23, 59, 59, 999);
 
                 data.forEach(msg => {
-                    totalEvents += 1;
+                    // Base info
                     const units = msg.productionUnits || [];
-                    
-                    // Identify Group Key
-                    let groupKey = msg.messageId; 
-                    let unitName = "Unknown Plant";
-                    let zone = (msg.biddingZones && msg.biddingZones[0]) || "Unknown";
-                    
-                    // Try to infer fuel type
-                    let fuelType = msg.fuelType;
-                    if (!fuelType && units.length > 0) {
-                        fuelType = units[0].fuelType;
-                    }
+                    const rootFuelType = msg.fuelType;
+                    const rootZone = (msg.biddingZones && msg.biddingZones[0]) || "Unknown";
+
+                    // Helper to create rows from time periods
+                    const processPeriods = (unitName, zone, fuelType, periods, reason, remarks) => {
+                         // Fallback if no periods but root event dates exist (rare but possible)
+                         if (!periods || periods.length === 0) {
+                             if (msg.eventStart && msg.eventStop) {
+                                 periods = [{
+                                     eventStart: msg.eventStart,
+                                     eventStop: msg.eventStop,
+                                     unavailableCapacity: msg.unavailableCapacity
+                                 }];
+                             } else {
+                                 return;
+                             }
+                         }
+
+                         periods.forEach((period, idx) => {
+                             const pStart = new Date(period.eventStart);
+                             const pEnd = new Date(period.eventStop);
+                             
+                             // --- LOGIC UPDATE: Overlap Check ---
+                             // Show event if it overlaps with the Publication Window (PubStart -> PubEnd)
+                             // Overlap condition: (StartA <= EndB) and (EndA >= StartB)
+                             // periodStart <= filterEndDate AND periodEnd >= filterStartDate
+                             if (pStart <= filterEndDate && pEnd >= filterStartDate) {
+                                 const mw = parseFloat(period.unavailableCapacity) || 0;
+                                 
+                                 // Add Row
+                                 tableRows.push({
+                                     id: `${msg.messageId}-${idx}`, // Unique key
+                                     messageId: msg.messageId,
+                                     unitName,
+                                     zone,
+                                     fuelType,
+                                     fuelKey: getFuelKey(fuelType),
+                                     start: pStart,
+                                     stop: pEnd,
+                                     mw,
+                                     reason,
+                                     remarks
+                                 });
+
+                                 // Update Stats
+                                 totalEventsCount++;
+                                 if (mw > maxFoundMW) maxFoundMW = mw;
+                                 
+                                 // Map Stats
+                                 if (!zoneStats[zone]) zoneStats[zone] = { count: 0, mw: 0 };
+                                 zoneStats[zone].count += 1;
+                                 if (mw > zoneStats[zone].mw) zoneStats[zone].mw = mw;
+
+                                 // Chart Stats (Strictly within PubStart -> PubEnd)
+                                 // We loop from start of period to end of period, but only add to chart if day is in range.
+                                 let current = new Date(pStart);
+                                 current.setHours(0,0,0,0);
+                                 const stopTime = pEnd.getTime();
+                                 
+                                 while (current.getTime() < stopTime) {
+                                     const dateStr = current.toISOString().split('T')[0];
+                                     
+                                     // STRICT CHART FILTER: Only show days within the selected publication window
+                                     if (dateStr >= pubStart && dateStr <= pubEnd) {
+                                         if (!dailyMW[dateStr]) dailyMW[dateStr] = 0;
+                                         if (!dailyCount[dateStr]) dailyCount[dateStr] = 0;
+                                         dailyMW[dateStr] += mw;
+                                         dailyCount[dateStr] += 1;
+                                     }
+                                     current.setDate(current.getDate() + 1);
+                                 }
+                             }
+                         });
+                    };
 
                     if (units.length > 0) {
-                        unitName = units[0].name;
-                        zone = units[0].areaName || zone;
-                        groupKey = unitName; 
-                    }
-
-                    if (!groupedEvents[groupKey]) {
-                        groupedEvents[groupKey] = {
-                            id: groupKey,
-                            unitName: unitName,
-                            zone: zone,
-                            fuelType: fuelType, 
-                            messages: [],
-                            minStart: null,
-                            maxStop: null,
-                            maxCap: 0,
-                            modificationCount: 0,
-                            remarks: msg.remarks,
-                            unavailabilityReason: msg.unavailabilityReason
-                        };
-                    }
-
-                    const group = groupedEvents[groupKey];
-                    group.messages.push(msg);
-                    group.modificationCount += 1;
-
-                    let msgMaxCap = 0;
-                    if (units.length > 0) {
-                        units.forEach((u) => {
-                            if (u.timePeriods) {
-                                u.timePeriods.forEach((t) => {
-                                    const mw = parseFloat(t.unavailableCapacity) || 0;
-                                    if (mw > msgMaxCap) msgMaxCap = mw;
-                                    
-                                    const s = new Date(t.eventStart).getTime();
-                                    const e = new Date(t.eventStop).getTime();
-                                    
-                                    if (group.minStart === null || s < group.minStart) group.minStart = s;
-                                    if (group.maxStop === null || e > group.maxStop) group.maxStop = e;
-                                    
-                                    if (!isNaN(s) && !isNaN(e)) {
-                                        let current = new Date(t.eventStart);
-                                        const stop = new Date(t.eventStop);
-                                        while (current <= stop) {
-                                            const dateStr = current.toISOString().split('T')[0];
-                                            // Only include in daily stats if date is >= pubStart
-                                            if (dateStr >= pubStart) {
-                                                if (!dailyMW[dateStr]) dailyMW[dateStr] = 0;
-                                                if (!dailyCount[dateStr]) dailyCount[dateStr] = 0;
-                                                dailyMW[dateStr] += mw; 
-                                                dailyCount[dateStr] += 1;
-                                            }
-                                            current.setDate(current.getDate() + 1);
-                                        }
-                                    }
-                                });
-                            }
+                        units.forEach(u => {
+                            let fType = u.fuelType || rootFuelType;
+                            processPeriods(u.name, u.areaName || rootZone, fType, u.timePeriods, msg.unavailabilityReason, msg.remarks);
                         });
                     } else {
-                        msgMaxCap = parseFloat(msg.unavailableCapacity) || 0;
+                        processPeriods("Unknown Unit", rootZone, rootFuelType, null, msg.unavailabilityReason, msg.remarks);
                     }
-
-                    if (msgMaxCap > group.maxCap) group.maxCap = msgMaxCap;
-
-                    if (!zoneStats[zone]) zoneStats[zone] = { count: 0, mw: 0 };
-                    zoneStats[zone].count += 1; 
-                    if (msgMaxCap > zoneStats[zone].mw) zoneStats[zone].mw = msgMaxCap;
-                    
-                    totalMW += msgMaxCap;
                 });
 
-                const tableData = Object.values(groupedEvents).sort((a, b) => b.maxCap - a.maxCap);
+                // Sort by MW desc
+                tableRows.sort((a, b) => b.mw - a.mw);
                 
-                // Get sorted dates from dailyMW which is already filtered
-                const finalSortedDates = Object.keys(dailyMW).sort();
-
-                const chartData = finalSortedDates.map(date => ({
+                const sortedDates = Object.keys(dailyMW).sort();
+                const chartData = sortedDates.map(date => ({
                     date,
                     mw: dailyMW[date],
                     events: dailyCount[date]
                 }));
 
-                return { totalMW, totalEvents, chartData, zoneStats, sortedDates: finalSortedDates, tableData };
-            }, [data, pubStart]); // Re-run if pubStart changes to update chart
+                // totalMW in KPI: user wants total capacity impact. 
+                // Summing all rows might be huge. Using Max single outage is a safe KPI for "Peak Impact".
+                // Or we can sum distinct units? Let's use Max Single Impact as a clean metric.
+                // Or Sum of current active? 
+                // Let's stick to Max Single Capacity Loss as a KPI to avoid misleading totals.
+                return { totalMW: maxFoundMW * 1000, totalEvents: totalEventsCount, chartData, zoneStats, sortedDates, tableData: tableRows };
+            }, [data, pubStart, pubEnd]); 
 
             const isDateChanged = pubStart !== lastFetchedDates.start || pubEnd !== lastFetchedDates.end;
-            // Now we disable button if loading OR if dates haven't changed AND no other filters changed?
-            // Actually, let's keep it simple: disable if loading.
-            // Or if you want strict "don't fetch same thing", we could check deep equality of params, but loading check is usually enough UX.
             const isAnalyzeDisabled = loading;
 
             return (
@@ -841,9 +801,9 @@
                             <div className="space-y-8 animate-fade-in relative z-10">
                                 {/* KPI Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                    <StatCard title="Events (Grouped)" value={analysis.tableData.length} sub="Unique Groups" color="blue" iconName="Layers" />
+                                    <StatCard title="Events (Periods)" value={analysis.tableData.length} sub="Filtered Segments" color="blue" iconName="Layers" />
                                     <StatCard title="Volume" value={analysis.totalEvents} sub="Total Messages" color="purple" iconName="Activity" />
-                                    <StatCard title="Max Capacity" value={(analysis.totalMW / 1000).toFixed(1) + " GW"} sub="Cumulative Impact" color="red" iconName="Zap" />
+                                    <StatCard title="Peak Impact" value={(analysis.totalMW / 1000).toFixed(1) + " GW"} sub="Max Single Loss" color="red" iconName="Zap" />
                                     <StatCard title="Affected Areas" value={Object.keys(analysis.zoneStats).length} sub="Total Zones" color="green" iconName="Map" />
                                 </div>
 
@@ -892,7 +852,7 @@
                                     <div className="flex justify-between items-center mb-6">
                                         <h3 className="text-lg font-bold flex items-center gap-2 text-white">
                                             <Icon name="Layers" className="text-purple-400" />
-                                            Event List
+                                            Event List (Periods)
                                         </h3>
                                         <div className="text-xs bg-purple-900/30 text-purple-300 border border-purple-900 px-3 py-1.5 rounded-lg flex items-center gap-2">
                                             <Icon name="Info" size={14} />
@@ -909,26 +869,22 @@
                                                     <th className="py-4 px-4">Start</th>
                                                     <th className="py-4 px-4">End (Est.)</th>
                                                     <th className="py-4 px-4 text-center">Duration</th>
-                                                    <th className="py-4 px-4 text-right">Max Loss</th>
-                                                    <th className="py-4 px-4 text-center">Rev</th>
+                                                    <th className="py-4 px-4 text-right">Loss</th>
                                                     <th className="py-4 px-4">Reason</th>
                                                     <th className="py-4 px-4 w-10"></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-800">
-                                                {analysis.tableData.slice(0, 100).map((group, i) => {
-                                                    const startDate = new Date(group.minStart);
-                                                    const endDate = new Date(group.maxStop);
-                                                    const durationMs = group.maxStop - group.minStart;
+                                                {analysis.tableData.slice(0, 100).map((row, i) => {
+                                                    const durationMs = row.stop - row.start;
                                                     const durationDays = (durationMs / (1000 * 60 * 60 * 24)).toFixed(1);
-                                                    const link = `https://umm.nordpoolgroup.com/#/messages/${group.messages[0].messageId}`;
-                                                    const fuelKey = getFuelKey(group.fuelType);
-                                                    const iconConfig = getFuelIconConfig(fuelKey);
+                                                    const link = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
+                                                    const iconConfig = getFuelIconConfig(row.fuelKey);
 
                                                     return (
                                                         <tr 
-                                                            key={group.id}
-                                                            onClick={() => setSelectedGroup(group)}
+                                                            key={row.id}
+                                                            onClick={() => setSelectedGroup(row)}
                                                             className="hover:bg-slate-800/60 transition cursor-pointer group"
                                                         >
                                                             <td className="py-4 px-4">
@@ -940,23 +896,20 @@
                                                             </td>
                                                             <td className="py-4 px-4 font-medium text-slate-200">
                                                                 <div className="flex flex-col">
-                                                                    <span className="group-hover:text-blue-300 transition-colors">{group.unitName}</span>
-                                                                    <span className="text-[10px] text-slate-500 bg-slate-950 w-fit px-1.5 py-0.5 rounded mt-1 border border-slate-800">{group.zone}</span>
+                                                                    <span className="group-hover:text-blue-300 transition-colors">{row.unitName}</span>
+                                                                    <span className="text-[10px] text-slate-500 bg-slate-950 w-fit px-1.5 py-0.5 rounded mt-1 border border-slate-800">{row.zone}</span>
                                                                 </div>
                                                             </td>
-                                                            <td className="py-4 px-4 font-mono text-slate-400 text-xs">{startDate.toLocaleDateString()}</td>
-                                                            <td className="py-4 px-4 font-mono text-slate-400 text-xs">{endDate.toLocaleDateString()}</td>
+                                                            <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.start.toLocaleString()}</td>
+                                                            <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.stop.toLocaleString()}</td>
                                                             <td className="py-4 px-4 text-center">
                                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${Number(durationDays) > 10 ? 'bg-red-900/30 text-red-400 border border-red-900/50' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-900/50'}`}>
                                                                     {durationDays} Days
                                                                 </span>
                                                             </td>
-                                                            <td className="py-4 px-4 text-right font-bold text-slate-200">{group.maxCap.toFixed(0)} <span className="text-slate-500 text-xs font-normal">MW</span></td>
-                                                            <td className="py-4 px-4 text-center">
-                                                                <span className="font-mono bg-slate-800 px-2 py-1 rounded text-xs text-slate-300 border border-slate-700">{group.modificationCount}</span>
-                                                            </td>
+                                                            <td className="py-4 px-4 text-right font-bold text-slate-200">{row.mw.toFixed(0)} <span className="text-slate-500 text-xs font-normal">MW</span></td>
                                                             <td className="py-4 px-4 text-slate-400 text-xs max-w-xs truncate opacity-70 group-hover:opacity-100 transition-opacity">
-                                                                {group.unavailabilityReason || group.remarks || "-"}
+                                                                {row.reason || row.remarks || "-"}
                                                             </td>
                                                             <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
                                                                 <a 
@@ -984,7 +937,7 @@
                         
                         {/* Pop-up Modal */}
                         {selectedGroup && (
-                            <EventDetailModal group={selectedGroup} onClose={() => setSelectedGroup(null)} />
+                            <EventDetailModal row={selectedGroup} onClose={() => setSelectedGroup(null)} />
                         )}
                     </div>
                 </div>
