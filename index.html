@@ -126,7 +126,6 @@
             "EE": [58.80, 25.50], "LV": [57.00, 25.00], "LT": [55.30, 24.00]
         };
 
-        // Fuel Options with IDs for API filtering
         const FUEL_OPTIONS = [
             { label: "Wind Onshore", value: "windonshore", id: 19 },
             { label: "Wind Offshore", value: "windoffshore", id: 18 },
@@ -197,7 +196,6 @@
                 const mw = Math.floor(Math.random() * 1200) + 10;
                 const unitLetter = String.fromCharCode(65 + (i % 10));
                 
-                // Random fuel type from our list
                 const fuelObj = FUEL_OPTIONS[Math.floor(Math.random() * FUEL_OPTIONS.length)];
                 
                 return {
@@ -206,7 +204,7 @@
                     unavailabilityReason: i % 3 === 0 ? "Weather conditions" : "Planned maintenance",
                     remarks: `Mock data for Unit ${unitLetter}.`,
                     publicationDate: start.toISOString(),
-                    fuelType: fuelObj.id, // Use ID for mock data consistency
+                    fuelType: fuelObj.id,
                     productionUnits: [
                         {
                             name: `Power Plant ${unitLetter}`,
@@ -295,8 +293,6 @@
                     Object.entries(stats).forEach(([zone, stat]) => {
                         const coords = ZONES[zone];
                         if (coords) {
-                            // Enhanced Heatmap Logic: Larger radius for larger MW
-                            // Base size 20000m, adds significantly more based on MW
                             const radius = 20000 + (Math.sqrt(stat.mw) * 2000); 
                             const color = getHeatmapColor(stat.mw); 
 
@@ -437,17 +433,22 @@
             lastWeek.setDate(today.getDate() - 7);
             const formatDate = (date) => date.toISOString().split('T')[0];
 
-            const [searchText, setSearchText] = useState("weather");
-            const [pubStart, setPubStart] = useState(formatDate(lastWeek));
-            const [pubEnd, setPubEnd] = useState(formatDate(today));
-            const [includeOutdated, setIncludeOutdated] = useState(false);
-            const [selectedFuels, setSelectedFuels] = useState([]);
-            const [showFuelDropdown, setShowFuelDropdown] = useState(false);
-            const [selectedGroup, setSelectedGroup] = useState(null);
+            // --- SERVER FILTERS (API) ---
+            const [serverPubStart, setServerPubStart] = useState(formatDate(lastWeek));
+            const [serverPubEnd, setServerPubEnd] = useState(formatDate(today));
+            const [serverIncludeOutdated, setServerIncludeOutdated] = useState(false);
+            const [serverSearchText, setServerSearchText] = useState("");
+            const [serverSelectedFuels, setServerSelectedFuels] = useState([]);
+            const [showServerFuelDropdown, setShowServerFuelDropdown] = useState(false);
 
-            // STATE for fetch control
+            // --- LOCAL FILTERS (VIEW) ---
+            const [localSearchText, setLocalSearchText] = useState("");
+            const [localZone, setLocalZone] = useState("");
+            const [localFuel, setLocalFuel] = useState("");
+
+            const [selectedGroup, setSelectedGroup] = useState(null);
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
-            const [data, setData] = useState([]); // Raw data
+            const [data, setData] = useState([]); 
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState(null);
             const [useMock, setUseMock] = useState(false);
@@ -456,12 +457,12 @@
                 const t = new Date();
                 const s = new Date(t);
                 s.setDate(t.getDate() - days);
-                setPubEnd(formatDate(t));
-                setPubStart(formatDate(s));
+                setServerPubEnd(formatDate(t));
+                setServerPubStart(formatDate(s));
             };
 
-            const toggleFuel = (value) => {
-                setSelectedFuels(prev => 
+            const toggleServerFuel = (value) => {
+                setServerSelectedFuels(prev => 
                     prev.includes(value) ? prev.filter(f => f !== value) : [...prev, value]
                 );
             };
@@ -469,13 +470,12 @@
             const fetchData = async () => {
                 setLoading(true);
                 setError(null);
-                setData([]); // Clear current data view
+                setData([]); 
 
                 if (useMock) {
-                    // Simulate fetch
                     setTimeout(() => { 
-                        setData(generateMockData(pubStart, pubEnd)); 
-                        setLastFetchedDates({ start: pubStart, end: pubEnd });
+                        setData(generateMockData(serverPubStart, serverPubEnd)); 
+                        setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
                         setLoading(false); 
                     }, 800);
                     return;
@@ -484,38 +484,32 @@
                 try {
                     const url = new URL("https://ummapi.nordpoolgroup.com/messages");
                     
-                    // --- API PARAMETERS (FILTER PREFIX IMPLEMENTATION) ---
-                    // Updated to use server-side filtering logic
-                    
-                    // 1. Date Filters (ISO 8601 with Time and Z)
-                    // Note: 'filter.' prefix enables server-side filtering
-                    url.searchParams.append("filter.publicationStartDate", pubStart + "T00:00:00Z");
-                    url.searchParams.append("filter.publicationStopDate", pubEnd + "T23:59:59Z");
+                    // 1. Date Filters
+                    url.searchParams.append("filter.publicationStartDate", serverPubStart + "T00:00:00Z");
+                    url.searchParams.append("filter.publicationStopDate", serverPubEnd + "T23:59:59Z");
                     url.searchParams.append("filter.eventStartDate", "1970-01-01T00:00:00Z");
                     url.searchParams.append("filter.eventStopDate", "2126-01-07T23:59:59Z");
 
                     // 2. Text Filter (Server-side)
-                    if (searchText) {
-                        url.searchParams.append("filter.searchText", searchText);
+                    if (serverSearchText) {
+                        url.searchParams.append("filter.searchText", serverSearchText);
                     }
 
                     // 3. Fuel Type Filter (Server-side)
-                    if (selectedFuels.length > 0) {
-                        // Map selected string values (e.g. "windonshore") back to IDs (e.g. 19)
-                        const fuelIds = selectedFuels.map(val => {
+                    if (serverSelectedFuels.length > 0) {
+                        const fuelIds = serverSelectedFuels.map(val => {
                             const opt = FUEL_OPTIONS.find(o => o.value === val);
                             return opt ? opt.id : null;
                         }).filter(id => id !== null);
                         
                         if (fuelIds.length > 0) {
-                            // Passing as comma-separated string for server-side filter
                             url.searchParams.append("filter.fuelTypes", fuelIds.join(","));
                         }
                     }
 
-                    // 4. Other Options (Server-side)
-                    url.searchParams.append("filter.includeOutdated", includeOutdated ? "true" : "false");
-                    url.searchParams.append("filter.limit", "2000"); // Max page size
+                    // 4. Other Options
+                    url.searchParams.append("filter.includeOutdated", serverIncludeOutdated ? "true" : "false");
+                    url.searchParams.append("filter.limit", "2000"); 
                     url.searchParams.append("filter.orderFields", "PublicationDate");
                     url.searchParams.append("filter.orderDirection", "DESC");
 
@@ -533,10 +527,9 @@
 
                     if (items.length > 0) {
                         setData(items);
-                        // Update fetched tracking
-                        setLastFetchedDates({ start: pubStart, end: pubEnd });
+                        setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
                     }
-                    else throw new Error("No data found matching your filters.");
+                    else throw new Error("No data found matching your server filters.");
 
                 } catch (err) {
                     console.error(err);
@@ -549,7 +542,7 @@
             // Auto-fetch on mount
             useEffect(() => { fetchData(); }, []);
 
-            // Data Processing: Flatten messages into time periods
+            // --- DATA ANALYSIS & LOCAL FILTERING ---
             const analysis = useMemo(() => {
                 if (!data || !Array.isArray(data) || data.length === 0) return null;
 
@@ -561,20 +554,35 @@
                 let totalEventsCount = 0;
 
                 const tableRows = [];
-                const filterStartDate = new Date(pubStart);
-                // Important: PubEnd is typically YYYY-MM-DD, we need to compare against the end of that day
-                const filterEndDate = new Date(pubEnd);
-                filterEndDate.setHours(23, 59, 59, 999);
+                // The chart will show the full fetched range for context, but we can limit it too
+                const pubStartObj = new Date(serverPubStart);
+                const pubEndObj = new Date(serverPubEnd);
+                pubEndObj.setHours(23, 59, 59, 999);
 
                 data.forEach(msg => {
-                    // Base info
+                    // Strict Pub Date Check (Already done by server, but client side check safety)
+                    if (msg.publicationDate) {
+                        const msgPubDate = new Date(msg.publicationDate);
+                        if (msgPubDate < pubStartObj) return;
+                    }
+
                     const units = msg.productionUnits || [];
                     const rootFuelType = msg.fuelType;
                     const rootZone = (msg.biddingZones && msg.biddingZones[0]) || "Unknown";
 
-                    // Helper to create rows from time periods
                     const processPeriods = (unitName, zone, fuelType, periods, reason, remarks) => {
-                         // Fallback if no periods but root event dates exist (rare but possible)
+                         // LOCAL FILTERING LOGIC
+                         // 1. Local Search
+                         if (localSearchText) {
+                             const searchContent = `${unitName} ${reason} ${remarks} ${msg.messageId}`.toLowerCase();
+                             if (!searchContent.includes(localSearchText.toLowerCase())) return;
+                         }
+                         // 2. Local Zone
+                         if (localZone && zone !== localZone) return;
+                         // 3. Local Fuel
+                         const fKey = getFuelKey(fuelType);
+                         if (localFuel && fKey !== localFuel) return;
+
                          if (!periods || periods.length === 0) {
                              if (msg.eventStart && msg.eventStop) {
                                  periods = [{
@@ -591,21 +599,16 @@
                              const pStart = new Date(period.eventStart);
                              const pEnd = new Date(period.eventStop);
                              
-                             // --- LOGIC UPDATE: Overlap Check ---
-                             // Show event if it overlaps with the Publication Window (PubStart -> PubEnd)
-                             // Overlap condition: (StartA <= EndB) and (EndA >= StartB)
-                             // periodStart <= filterEndDate AND periodEnd >= filterStartDate
-                             if (pStart <= filterEndDate && pEnd >= filterStartDate) {
+                             if (pStart <= pubEndObj && pEnd >= pubStartObj) {
                                  const mw = parseFloat(period.unavailableCapacity) || 0;
                                  
-                                 // Add Row
                                  tableRows.push({
-                                     id: `${msg.messageId}-${idx}`, // Unique key
+                                     id: `${msg.messageId}-${idx}`,
                                      messageId: msg.messageId,
                                      unitName,
                                      zone,
                                      fuelType,
-                                     fuelKey: getFuelKey(fuelType),
+                                     fuelKey: fKey,
                                      start: pStart,
                                      stop: pEnd,
                                      mw,
@@ -613,26 +616,20 @@
                                      remarks
                                  });
 
-                                 // Update Stats
                                  totalEventsCount++;
                                  if (mw > maxFoundMW) maxFoundMW = mw;
                                  
-                                 // Map Stats
                                  if (!zoneStats[zone]) zoneStats[zone] = { count: 0, mw: 0 };
                                  zoneStats[zone].count += 1;
                                  if (mw > zoneStats[zone].mw) zoneStats[zone].mw = mw;
 
-                                 // Chart Stats (Strictly within PubStart -> PubEnd)
-                                 // We loop from start of period to end of period, but only add to chart if day is in range.
                                  let current = new Date(pStart);
                                  current.setHours(0,0,0,0);
                                  const stopTime = pEnd.getTime();
                                  
                                  while (current.getTime() < stopTime) {
                                      const dateStr = current.toISOString().split('T')[0];
-                                     
-                                     // STRICT CHART FILTER: Only show days within the selected publication window
-                                     if (dateStr >= pubStart && dateStr <= pubEnd) {
+                                     if (dateStr >= serverPubStart && dateStr <= serverPubEnd) {
                                          if (!dailyMW[dateStr]) dailyMW[dateStr] = 0;
                                          if (!dailyCount[dateStr]) dailyCount[dateStr] = 0;
                                          dailyMW[dateStr] += mw;
@@ -654,7 +651,6 @@
                     }
                 });
 
-                // Sort by MW desc
                 tableRows.sort((a, b) => b.mw - a.mw);
                 
                 const sortedDates = Object.keys(dailyMW).sort();
@@ -664,16 +660,8 @@
                     events: dailyCount[date]
                 }));
 
-                // totalMW in KPI: user wants total capacity impact. 
-                // Summing all rows might be huge. Using Max single outage is a safe KPI for "Peak Impact".
-                // Or we can sum distinct units? Let's use Max Single Impact as a clean metric.
-                // Or Sum of current active? 
-                // Let's stick to Max Single Capacity Loss as a KPI to avoid misleading totals.
                 return { totalMW: maxFoundMW * 1000, totalEvents: totalEventsCount, chartData, zoneStats, sortedDates, tableData: tableRows };
-            }, [data, pubStart, pubEnd]); 
-
-            const isDateChanged = pubStart !== lastFetchedDates.start || pubEnd !== lastFetchedDates.end;
-            const isAnalyzeDisabled = loading;
+            }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuel]); 
 
             return (
                 <div className="min-h-full pb-10 font-sans selection:bg-cyan-500 selection:text-white relative">
@@ -714,78 +702,85 @@
                         </div>
                     </div>
 
-                    <div className="max-w-7xl mx-auto mt-8 px-4">
-                        {/* Filters Container with z-index fix */}
-                        <div className="bg-slate-900/60 p-6 rounded-2xl border border-slate-800 backdrop-blur-sm shadow-xl mb-8 relative z-20">
+                    <div className="max-w-7xl mx-auto mt-8 px-4 space-y-6">
+                        {/* SERVER FILTERS (API Fetch) */}
+                        <div className="bg-slate-900/80 p-5 rounded-2xl border border-blue-900/30 shadow-xl relative z-20">
+                            <div className="flex items-center gap-2 mb-4 text-blue-400 text-xs font-bold uppercase tracking-widest border-b border-blue-900/30 pb-2">
+                                <Icon name="Cloud" size={16} />
+                                Data Source & Fetching Parameters
+                            </div>
                             <div className="flex flex-wrap gap-4 items-end">
                                 <div className="flex-1 min-w-[200px]">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">Keyword (Filter)</label>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">API Search (Server)</label>
                                     <div className="relative group">
-                                        <Icon name="Search" size={18} className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
-                                        <input type="text" value={searchText} onChange={(e) => setSearchText(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none text-slate-200 placeholder-slate-600 transition-all" placeholder="e.g. weather, trip" />
+                                        <Icon name="Server" size={18} className="absolute left-3 top-3 text-slate-500 group-focus-within:text-blue-400 transition-colors" />
+                                        <input type="text" value={serverSearchText} onChange={(e) => setServerSearchText(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 outline-none text-slate-200 placeholder-slate-600 transition-all" placeholder="Fetch keyword (e.g. weather)" />
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">Publication Start</label>
-                                    <input type="date" value={pubStart} onChange={(e) => setPubStart(e.target.value)} className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 outline-none text-slate-200" />
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Fetch Start</label>
+                                    <input type="date" value={serverPubStart} onChange={(e) => setServerPubStart(e.target.value)} className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 outline-none text-slate-200" />
                                 </div>
                                 <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">Publication End</label>
-                                    <input type="date" value={pubEnd} onChange={(e) => setPubEnd(e.target.value)} className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 outline-none text-slate-200" />
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Fetch End</label>
+                                    <input type="date" value={serverPubEnd} onChange={(e) => setServerPubEnd(e.target.value)} className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:ring-2 focus:ring-blue-500/50 outline-none text-slate-200" />
                                 </div>
-
                                 <div className="relative">
-                                     <label className="block text-xs font-bold text-slate-500 uppercase mb-2 tracking-wider">Fuel Type</label>
-                                     <button 
-                                        onClick={() => setShowFuelDropdown(!showFuelDropdown)}
-                                        className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-3 min-w-[200px] hover:border-slate-600 transition-all text-slate-300"
-                                     >
-                                         <span className="text-sm">
-                                             {selectedFuels.length === 0 ? "All Selected" : `${selectedFuels.length} Selected`}
-                                         </span>
-                                         <Icon name="ChevronDown" size={16} />
-                                     </button>
-                                     
-                                     {showFuelDropdown && (
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Server Fuel</label>
+                                    <button onClick={() => setShowServerFuelDropdown(!showServerFuelDropdown)} className="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between gap-3 min-w-[150px] hover:border-slate-600 transition-all text-slate-300">
+                                        <span className="text-sm">{serverSelectedFuels.length === 0 ? "All" : `${serverSelectedFuels.length} Selected`}</span>
+                                        <Icon name="ChevronDown" size={16} />
+                                    </button>
+                                    {showServerFuelDropdown && (
                                         <div className="absolute top-full left-0 mt-2 w-64 bg-slate-900 rounded-xl shadow-2xl border border-slate-700 z-50 max-h-80 overflow-y-auto p-2">
-                                            <div onClick={() => setSelectedFuels([])} className={`p-2.5 rounded-lg cursor-pointer text-sm font-medium mb-1 transition-colors ${selectedFuels.length === 0 ? 'bg-blue-600 text-white' : 'hover:bg-slate-800 text-slate-300'}`}>All (No Filter)</div>
-                                            <div className="border-t border-slate-800 my-1"></div>
                                             {FUEL_OPTIONS.map(opt => (
-                                                <label key={opt.value} className="flex items-center gap-3 p-2.5 hover:bg-slate-800 rounded-lg cursor-pointer transition-colors group">
-                                                    <input type="checkbox" checked={selectedFuels.includes(opt.value)} onChange={() => toggleFuel(opt.value)} className="rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-offset-slate-900" />
-                                                    <span className="text-sm text-slate-400 group-hover:text-slate-200">{opt.label}</span>
+                                                <label key={opt.value} className="flex items-center gap-3 p-2.5 hover:bg-slate-800 rounded-lg cursor-pointer">
+                                                    <input type="checkbox" checked={serverSelectedFuels.includes(opt.value)} onChange={() => toggleServerFuel(opt.value)} className="rounded border-slate-600 bg-slate-950 text-blue-500" />
+                                                    <span className="text-sm text-slate-400">{opt.label}</span>
                                                 </label>
                                             ))}
                                         </div>
-                                     )}
+                                    )}
                                 </div>
-
-                                <button 
-                                    onClick={fetchData} 
-                                    disabled={isAnalyzeDisabled} 
-                                    className={`px-8 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg active:scale-95 ${
-                                        isAnalyzeDisabled 
-                                        ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none' 
-                                        : 'bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/20'
-                                    }`}
-                                >
+                                <button onClick={fetchData} disabled={loading} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2.5 rounded-xl font-bold transition-all flex items-center gap-2 shadow-lg shadow-blue-600/20 active:scale-95">
                                     {loading ? <Icon name="Loader2" className="animate-spin" /> : <Icon name="RefreshCw" />}
-                                    Analyze
+                                    Fetch
                                 </button>
                             </div>
-                            
-                            <div className="flex items-center gap-4 text-sm border-t border-slate-800 pt-4 mt-4">
-                                 <div className="flex items-center gap-3 mr-4 border-r border-slate-800 pr-6">
-                                     <Icon name="Filter" size={16} className="text-slate-500"/>
-                                     <span className="text-slate-400 font-medium">Quick Date:</span>
-                                     <button onClick={() => setQuickDate(7)} className="text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 px-3 py-1 rounded-lg transition">1 Week</button>
-                                     <button onClick={() => setQuickDate(30)} className="text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 px-3 py-1 rounded-lg transition">1 Month</button>
-                                     <button onClick={() => setQuickDate(90)} className="text-blue-400 hover:text-blue-300 hover:bg-blue-400/10 px-3 py-1 rounded-lg transition">3 Months</button>
-                                 </div>
-                                 <label className="flex items-center gap-2 cursor-pointer select-none group">
-                                     <input type="checkbox" checked={includeOutdated} onChange={(e) => setIncludeOutdated(e.target.checked)} className="w-4 h-4 rounded border-slate-600 bg-slate-950 text-blue-500 focus:ring-offset-slate-900" />
-                                     <span className="text-slate-500 group-hover:text-slate-300 transition-colors">Include Outdated</span>
-                                 </label>
+                        </div>
+
+                        {/* LOCAL FILTERS (View Only) */}
+                        <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/50 backdrop-blur-sm shadow-sm relative z-10">
+                            <div className="flex items-center gap-2 mb-4 text-emerald-400 text-xs font-bold uppercase tracking-widest border-b border-emerald-900/30 pb-2">
+                                <Icon name="Filter" size={16} />
+                                Dashboard View Filters (Local)
+                            </div>
+                            <div className="flex flex-wrap gap-4 items-end">
+                                <div className="flex-1 min-w-[200px]">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Local Search</label>
+                                    <div className="relative group">
+                                        <Icon name="Search" size={18} className="absolute left-3 top-3 text-slate-500 group-focus-within:text-emerald-400 transition-colors" />
+                                        <input type="text" value={localSearchText} onChange={(e) => setLocalSearchText(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500 outline-none text-slate-200 placeholder-slate-600 transition-all" placeholder="Filter current view..." />
+                                    </div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Zone / Area</label>
+                                    <select value={localZone} onChange={(e) => setLocalZone(e.target.value)} className="px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 outline-none text-slate-200 min-w-[140px]">
+                                        <option value="">All Zones</option>
+                                        {Object.keys(ZONES).map(z => <option key={z} value={z}>{z}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Local Fuel</label>
+                                    <select value={localFuel} onChange={(e) => setLocalFuel(e.target.value)} className="px-4 py-2.5 bg-slate-900/50 border border-slate-700 rounded-xl focus:ring-2 focus:ring-emerald-500/50 outline-none text-slate-200 min-w-[160px]">
+                                        <option value="">All Fuels</option>
+                                        {FUEL_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                                    </select>
+                                </div>
+                                <div className="flex items-center gap-2 self-center ml-2 border-l border-slate-700 pl-4 h-10">
+                                    <span className="text-xs font-bold text-slate-500 uppercase mr-2">Fetched Data:</span>
+                                    <span className="bg-slate-900 px-3 py-1 rounded text-slate-300 text-sm font-mono border border-slate-700">{data ? data.length : 0} items</span>
+                                </div>
                             </div>
                         </div>
 
@@ -801,7 +796,7 @@
                             <div className="space-y-8 animate-fade-in relative z-10">
                                 {/* KPI Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                                    <StatCard title="Events (Periods)" value={analysis.tableData.length} sub="Filtered Segments" color="blue" iconName="Layers" />
+                                    <StatCard title="Events (Displayed)" value={analysis.tableData.length} sub="Filtered Segments" color="blue" iconName="Layers" />
                                     <StatCard title="Volume" value={analysis.totalEvents} sub="Total Messages" color="purple" iconName="Activity" />
                                     <StatCard title="Peak Impact" value={(analysis.totalMW / 1000).toFixed(1) + " GW"} sub="Max Single Loss" color="red" iconName="Zap" />
                                     <StatCard title="Affected Areas" value={Object.keys(analysis.zoneStats).length} sub="Total Zones" color="green" iconName="Map" />
@@ -810,7 +805,7 @@
                                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                                     {/* Chart */}
                                     <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 backdrop-blur-sm">
-                                        <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-white"><Icon name="BarChart2" className="text-blue-400" /> Daily Capacity Loss</h3>
+                                        <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-white"><Icon name="BarChart2" className="text-blue-400" /> Daily Capacity Loss (Filtered)</h3>
                                         <div className="h-80 w-full">
                                             {ChartComponent ? (
                                                 <ResponsiveContainer width="100%" height="100%">
@@ -840,7 +835,7 @@
 
                                     {/* Map */}
                                     <div className="bg-slate-900/50 p-6 rounded-2xl border border-slate-800 backdrop-blur-sm flex flex-col">
-                                        <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-white"><Icon name="Map" className="text-green-400" /> Regional Density</h3>
+                                        <h3 className="text-lg font-bold mb-6 flex items-center gap-2 text-white"><Icon name="Map" className="text-green-400" /> Regional Density (Filtered)</h3>
                                         <div className="flex-1 rounded-xl overflow-hidden border border-slate-700 relative">
                                             <MapView stats={analysis.zoneStats} />
                                         </div>
