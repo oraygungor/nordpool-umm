@@ -488,77 +488,133 @@
                 setSortConfig({ key, direction });
             };
 
-            const fetchData = async () => {
-                setLoading(true);
-                setError(null);
-                setData([]); 
 
-                if (useMock) {
-                    setTimeout(() => { 
-                        setData(generateMockData(serverPubStart, serverPubEnd)); 
-                        setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
-                        setLoading(false); 
-                    }, 800);
-                    return;
-                }
+            // --- API response normalizer (keeps your existing tolerance) --- (added 08.01.2026
+const normalizeUMMResponse = (result) => {
+  // Expected: { items: [...], total: N }
+  if (result && Array.isArray(result.items)) {
+    return { items: result.items, total: typeof result.total === "number" ? result.total : null };
+  }
+  // Sometimes APIs return a raw array
+  if (Array.isArray(result)) {
+    return { items: result, total: result.length };
+  }
+  // Fallback: find first array value inside object (your old logic)
+  if (result && typeof result === "object") {
+    const possibleArray = Object.values(result).find(val => Array.isArray(val));
+    if (possibleArray) return { items: possibleArray, total: possibleArray.length };
+  }
+  return { items: [], total: null };
+};
+   // --- API response normalizer (keeps your existing tolerance) --- (added 08.01.2026
+            
+const fetchData = async () => {
+  setLoading(true);
+  setError(null);
+  setData([]);
 
-                try {
-                    const url = new URL("https://ummapi.nordpoolgroup.com/messages");
-                    
-                    // 1. Date Filters
-                    url.searchParams.append("filter.publicationStartDate", serverPubStart + "T00:00:00Z");
-                    url.searchParams.append("filter.publicationStopDate", serverPubEnd + "T23:59:59Z");
-                    url.searchParams.append("filter.eventStartDate", "1970-01-01T00:00:00Z");
-                    url.searchParams.append("filter.eventStopDate", "2126-01-07T23:59:59Z");
+  if (useMock) {
+    setTimeout(() => {
+      setData(generateMockData(serverPubStart, serverPubEnd));
+      setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
+      setLoading(false);
+    }, 800);
+    return;
+  }
 
-                    // 2. Text Filter (Server-side)
-                    if (serverSearchText) {
-                        url.searchParams.append("filter.searchText", serverSearchText);
-                    }
+  try {
+    const PAGE_SIZE = 2000;      // API max per page
+    let skip = 0;
+    let total = null;
+    const allItems = [];
 
-                    // 3. Fuel Type Filter (Server-side)
-                    if (serverSelectedFuels.length > 0) {
-                        const fuelIds = serverSelectedFuels.map(val => {
-                            const opt = FUEL_OPTIONS.find(o => o.value === val);
-                            return opt ? opt.id : null;
-                        }).filter(id => id !== null);
-                        
-                        if (fuelIds.length > 0) {
-                            url.searchParams.append("filter.fuelTypes", fuelIds.join(","));
-                        }
-                    }
+    // Convert selected fuel keys -> IDs once (same logic as you had)
+    const fuelIds = serverSelectedFuels
+      .map(val => {
+        const opt = FUEL_OPTIONS.find(o => o.value === val);
+        return opt ? opt.id : null;
+      })
+      .filter(id => id !== null);
 
-                    // 4. Other Options
-                    url.searchParams.append("filter.includeOutdated", serverIncludeOutdated ? "true" : "false");
-                    url.searchParams.append("filter.limit", "2000"); 
-                    url.searchParams.append("filter.orderFields", "PublicationDate");
-                    url.searchParams.append("filter.orderDirection", "DESC");
+    // Helper to build URL per page (prevents duplicate params)
+    const buildUrlForPage = (skipVal) => {
+      const url = new URL("https://ummapi.nordpoolgroup.com/messages");
 
-                    const response = await fetch(url.toString());
-                    if (!response.ok) throw new Error(`API Error: ${response.status}`);
-                    
-                    const result = await response.json();
-                    let items = [];
-                    if (result.items && Array.isArray(result.items)) items = result.items;
-                    else if (Array.isArray(result)) items = result;
-                    else if (typeof result === 'object') {
-                        const possibleArray = Object.values(result).find(val => Array.isArray(val));
-                        if (possibleArray) items = possibleArray;
-                    }
+      // 1) Date Filters
+      url.searchParams.set("filter.publicationStartDate", serverPubStart + "T00:00:00Z");
+      url.searchParams.set("filter.publicationStopDate",  serverPubEnd + "T23:59:59Z");
+      url.searchParams.set("filter.eventStartDate", "1970-01-01T00:00:00Z");
+      url.searchParams.set("filter.eventStopDate",  "2126-01-07T23:59:59Z");
 
-                    if (items.length > 0) {
-                        setData(items);
-                        setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
-                    }
-                    else throw new Error("No data found matching your server filters.");
+      // 2) Text Filter (Server-side)
+      if (serverSearchText) {
+        url.searchParams.set("filter.searchText", serverSearchText);
+      }
 
-                } catch (err) {
-                    console.error(err);
-                    setError(err.message || "Could not fetch data. Try Demo Mode.");
-                } finally {
-                    setLoading(false);
-                }
-            };
+      // 3) Fuel Type Filter (Server-side)
+      if (fuelIds.length > 0) {
+        url.searchParams.set("filter.fuelTypes", fuelIds.join(","));
+      }
+
+      // 4) Other Options (same as before)
+      url.searchParams.set("filter.includeOutdated", serverIncludeOutdated ? "true" : "false");
+      url.searchParams.set("filter.orderFields", "PublicationDate");
+      url.searchParams.set("filter.orderDirection", "DESC");
+
+      // 5) Pagination
+      url.searchParams.set("filter.limit", String(PAGE_SIZE));
+      url.searchParams.set("filter.skip", String(skipVal));
+
+      return url.toString();
+    };
+
+    // --- PAGINATION LOOP ---
+    while (true) {
+      const response = await fetch(buildUrlForPage(skip));
+      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+      const result = await response.json();
+      const { items, total: pageTotal } = normalizeUMMResponse(result);
+
+      if (total === null && typeof pageTotal === "number") total = pageTotal;
+
+// ✅ soft cap (right here)
+const MAX_TOTAL_TO_LOAD = 20000;
+if (total != null && total > MAX_TOTAL_TO_LOAD) {
+  throw new Error(`Too many results (${total}). Narrow the server filters (date range / keyword) or ask my help :)`);
+}
+
+        
+      if (!items || items.length === 0) break;
+
+      allItems.push(...items);
+      skip += items.length;
+
+      // Stop when we have everything (best case)
+      if (total !== null && allItems.length >= total) break;
+
+      // Stop if last page (API returned fewer than page size)
+      if (items.length < PAGE_SIZE) break;
+
+      // Safety cap (optional): prevents infinite loop if API misbehaves
+      // if (skip > 200000) break;
+    }
+
+    if (allItems.length > 0) {
+      setData(allItems);
+      setLastFetchedDates({ start: serverPubStart, end: serverPubEnd });
+    } else {
+      throw new Error("No data found matching your server filters.");
+    }
+
+  } catch (err) {
+    console.error(err);
+    setError(err.message || "Could not fetch data. Try Demo Mode.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
             // Auto-fetch on mount
             useEffect(() => { fetchData(); }, []);
