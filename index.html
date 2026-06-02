@@ -119,6 +119,14 @@
         };
 
         // --- CONSTANTS ---
+        // IMPORTANT:
+        // Direct browser calls to https://ummapi.nordpoolgroup.com/messages are currently blocked by CORS.
+        // Put your Cloudflare Worker / Vercel / Netlify proxy URL here.
+        // Example: "https://nordpool-umm-proxy.yourname.workers.dev/messages"
+        const NORDPOOL_PROXY_URL = "https://YOUR-PROXY-DOMAIN/messages";
+        const DIRECT_NORDPOOL_URL = "https://ummapi.nordpoolgroup.com/messages";
+        const USE_PROXY_FOR_LIVE_API = true;
+
         const ZONES = {
             "NO1": [59.91, 10.75], "NO2": [58.97, 5.73], "NO3": [63.43, 10.39], "NO4": [69.64, 18.95],
             "SE1": [66.00, 21.00], "SE2": [63.50, 17.00], "SE3": [59.50, 16.00], "SE4": [56.00, 14.00],
@@ -523,6 +531,10 @@ const fetchData = async () => {
   }
 
   try {
+    if (USE_PROXY_FOR_LIVE_API && NORDPOOL_PROXY_URL.includes("YOUR-PROXY-DOMAIN")) {
+      throw new Error("Live API needs a proxy URL. Replace NORDPOOL_PROXY_URL near the top of the HTML file with your Cloudflare Worker / Vercel / Netlify proxy endpoint.");
+    }
+
     const PAGE_SIZE = 2000;      // API max per page
     let skip = 0;
     let total = null;
@@ -538,7 +550,8 @@ const fetchData = async () => {
 
     // Helper to build URL per page (prevents duplicate params)
     const buildUrlForPage = (skipVal) => {
-      const url = new URL("https://ummapi.nordpoolgroup.com/messages");
+      const apiEndpoint = USE_PROXY_FOR_LIVE_API ? NORDPOOL_PROXY_URL : DIRECT_NORDPOOL_URL;
+      const url = new URL(apiEndpoint);
 
       // 1) Date Filters
       url.searchParams.set("filter.publicationStartDate", serverPubStart + "T00:00:00Z");
@@ -609,7 +622,8 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
 
   } catch (err) {
     console.error(err);
-    setError(err.message || "Could not fetch data. Try Demo Mode.");
+    const baseMessage = err.message || "Could not fetch data.";
+    setError(baseMessage + " If Python/server-side access works but this browser app fails, the likely cause is CORS and you need to use the proxy URL configured in NORDPOOL_PROXY_URL.");
   } finally {
     setLoading(false);
   }
@@ -798,7 +812,7 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                                 </h1>
                             </div>
                             <div className="flex items-center gap-3 bg-slate-950/50 p-1.5 rounded-xl border border-slate-800">
-                                <button onClick={() => setUseMock(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${!useMock ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Live API</button>
+                                <button onClick={() => setUseMock(false)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${!useMock ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Live API via Proxy</button>
                                 <button onClick={() => setUseMock(true)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${useMock ? 'bg-amber-600 text-white shadow-lg shadow-amber-500/30' : 'text-slate-400 hover:text-white hover:bg-slate-800'}`}>Demo Mode</button>
                             </div>
                         </div>
@@ -807,9 +821,12 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                     <div className="max-w-7xl mx-auto mt-8 px-4 space-y-6">
                         {/* SERVER FILTERS (API Fetch) */}
                         <div className="bg-slate-900/80 p-5 rounded-2xl border border-blue-900/30 shadow-xl relative z-30">
-                            <div className="flex items-center gap-2 mb-4 text-blue-400 text-xs font-bold uppercase tracking-widest border-b border-blue-900/30 pb-2">
+                            <div className="flex items-center gap-2 mb-2 text-blue-400 text-xs font-bold uppercase tracking-widest border-b border-blue-900/30 pb-2">
                                 <Icon name="Cloud" size={16} />
                                 Data Source & Fetching Parameters
+                            </div>
+                            <div className="mb-4 text-xs text-slate-500">
+                                Live API must go through your own proxy because direct browser requests to Nord Pool UMM are currently blocked by CORS.
                             </div>
                             <div className="flex flex-wrap gap-4 items-end">
                                 <div className="flex-1 min-w-[200px]">
