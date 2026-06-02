@@ -123,9 +123,9 @@
         // Direct browser calls to https://ummapi.nordpoolgroup.com/messages are currently blocked by CORS.
         // Put your Cloudflare Worker / Vercel / Netlify proxy URL here.
         // Example: "https://nordpool-umm-proxy.yourname.workers.dev/messages"
-        const NORDPOOL_PROXY_URL = "https://YOUR-PROXY-DOMAIN/messages";
-        const DIRECT_NORDPOOL_URL = "https://ummapi.nordpoolgroup.com/messages";
-        const USE_PROXY_FOR_LIVE_API = true;
+const NORDPOOL_PROXY_URL = "https://YOUR-PROXY-DOMAIN/messages";
+const DIRECT_NORDPOOL_URL = "https://ummapi.nordpoolgroup.com/messages";
+const USE_PROXY_FOR_LIVE_API = false;
 
         const ZONES = {
             "NO1": [59.91, 10.75], "NO2": [58.97, 5.73], "NO3": [63.43, 10.39], "NO4": [69.64, 18.95],
