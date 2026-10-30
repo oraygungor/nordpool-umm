@@ -29,6 +29,7 @@
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
     <style>
         /* Custom Scrollbar for Dark Mode */
@@ -187,6 +188,43 @@ const USE_PROXY_FOR_LIVE_API = true;
             if (mw < 600) return '#facc15'; // Yellow
             if (mw < 1000) return '#fb923c'; // Orange
             return '#f87171'; // Red
+        };
+
+
+        // Preserve provenance: publishers and market participants are separate API entities.
+        const firstPresent = (...v) => v.find(x => x !== undefined && x !== null && x !== "");
+        const asText = v => {
+            if (v === null || v === undefined) return "";
+            if (typeof v === "string" || typeof v === "number") return String(v);
+            if (typeof v === "object") return asText(firstPresent(v.name, v.companyName, v.displayName, v.label, v.value));
+            return "";
+        };
+        const displayField = v => asText(v) || "—";
+        const numericOrNull = v => v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
+        const formatUtc = v => {
+            if (!v) return "";
+            const d = v instanceof Date ? v : new Date(v);
+            return Number.isNaN(d.getTime()) ? asText(v) : d.toISOString().replace("T", " ").replace("Z", " UTC");
+        };
+        const getPublisher = msg => {
+            const p = firstPresent(msg.publisher, msg.publishingCompany, msg.publisherCompany, msg.publisherName);
+            return {name: asText(p), code: asText(firstPresent(p && typeof p === "object" && firstPresent(p.code, p.id, p.companyId), msg.publisherCode, msg.publisherId))};
+        };
+        const getParticipants = msg => {
+            const p = firstPresent(msg.marketParticipants, msg.marketParticipant);
+            return (Array.isArray(p) ? p : p ? [p] : []).map(v => typeof v === "object" && v !== null
+                ? {name: asText(firstPresent(v.name, v.companyName)), code: asText(v.code), acerCode: asText(v.acerCode), eicCode: asText(v.eicCode), leiCode: asText(v.leiCode)}
+                : {name: asText(v), code: "", acerCode: "", eicCode: "", leiCode: ""})
+                .filter(v => v.name || v.code || v.acerCode);
+        };
+        const getNordPoolLink = row => "https://umm.nordpoolgroup.com/#/messages/" +
+            encodeURIComponent(asText(row.messageId)) +
+            (row.messageVersion !== null && row.messageVersion !== undefined && row.messageVersion !== "" ? "/" + encodeURIComponent(String(row.messageVersion)) : "");
+        const excelSafe = v => {
+            if (v === null || v === undefined) return "";
+            if (typeof v === "number") return v;
+            const t = String(v);
+            return ["=", "+", "-", "@"].includes(t.trimStart().charAt(0)) ? "'" + t : t;
         };
 
         // --- MOCK DATA GENERATOR ---
