@@ -217,9 +217,9 @@ const USE_PROXY_FOR_LIVE_API = true;
                 : {name: asText(v), code: "", acerCode: "", eicCode: "", leiCode: ""})
                 .filter(v => v.name || v.code || v.acerCode);
         };
+        // Keep the original known-working message URL; version remains a separate audit field.
         const getNordPoolLink = row => "https://umm.nordpoolgroup.com/#/messages/" +
-            encodeURIComponent(asText(row.messageId)) +
-            (row.messageVersion !== null && row.messageVersion !== undefined && row.messageVersion !== "" ? "/" + encodeURIComponent(String(row.messageVersion)) : "");
+            encodeURIComponent(asText(row.messageId));
         const excelSafe = v => {
             if (v === null || v === undefined) return "";
             if (typeof v === "number") return v;
