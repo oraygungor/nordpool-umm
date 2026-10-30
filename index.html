@@ -29,6 +29,7 @@
     
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
     <style>
         /* Custom Scrollbar for Dark Mode */
@@ -187,6 +188,43 @@ const USE_PROXY_FOR_LIVE_API = true;
             if (mw < 600) return '#facc15'; // Yellow
             if (mw < 1000) return '#fb923c'; // Orange
             return '#f87171'; // Red
+        };
+
+
+        // Preserve provenance: publishers and market participants are separate API entities.
+        const firstPresent = (...v) => v.find(x => x !== undefined && x !== null && x !== "");
+        const asText = v => {
+            if (v === null || v === undefined) return "";
+            if (typeof v === "string" || typeof v === "number") return String(v);
+            if (typeof v === "object") return asText(firstPresent(v.name, v.companyName, v.displayName, v.label, v.value));
+            return "";
+        };
+        const displayField = v => asText(v) || "—";
+        const numericOrNull = v => v === null || v === undefined || v === "" || !Number.isFinite(Number(v)) ? null : Number(v);
+        const formatUtc = v => {
+            if (!v) return "";
+            const d = v instanceof Date ? v : new Date(v);
+            return Number.isNaN(d.getTime()) ? asText(v) : d.toISOString().replace("T", " ").replace("Z", " UTC");
+        };
+        const getPublisher = msg => {
+            const p = firstPresent(msg.publisher, msg.publishingCompany, msg.publisherCompany, msg.publisherName);
+            return {name: asText(p), code: asText(firstPresent(p && typeof p === "object" && firstPresent(p.code, p.id, p.companyId), msg.publisherCode, msg.publisherId))};
+        };
+        const getParticipants = msg => {
+            const p = firstPresent(msg.marketParticipants, msg.marketParticipant);
+            return (Array.isArray(p) ? p : p ? [p] : []).map(v => typeof v === "object" && v !== null
+                ? {name: asText(firstPresent(v.name, v.companyName)), code: asText(v.code), acerCode: asText(v.acerCode), eicCode: asText(v.eicCode), leiCode: asText(v.leiCode)}
+                : {name: asText(v), code: "", acerCode: "", eicCode: "", leiCode: ""})
+                .filter(v => v.name || v.code || v.acerCode);
+        };
+        // Keep the original known-working message URL; version remains a separate audit field.
+        const getNordPoolLink = row => "https://umm.nordpoolgroup.com/#/messages/" +
+            encodeURIComponent(asText(row.messageId));
+        const excelSafe = v => {
+            if (v === null || v === undefined) return "";
+            if (typeof v === "number") return v;
+            const t = String(v);
+            return ["=", "+", "-", "@"].includes(t.trimStart().charAt(0)) ? "'" + t : t;
         };
 
         // --- MOCK DATA GENERATOR ---
@@ -349,92 +387,48 @@ const USE_PROXY_FOR_LIVE_API = true;
             );
         };
 
-        const EventDetailModal = ({ row, onClose }) => {
+
+        const DetailField = ({label, children}) => <div className="min-w-0"><div className="text-[10px] uppercase font-bold tracking-wide text-slate-500 mb-1">{label}</div><div className="text-sm text-slate-200 break-words">{children === null || children === undefined || children === "" ? "—" : children}</div></div>;
+        const EventDetailModal = ({row,onClose}) => {
             if (!row) return null;
-
-            const nordPoolLink = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
             const fuelIcon = getFuelIconConfig(row.fuelKey);
-
-            return (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-                    <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-slate-700">
-                        {/* Header */}
-                        <div className="p-6 border-b border-slate-800 flex items-start justify-between bg-slate-900 rounded-t-2xl">
-                            <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Icon name={fuelIcon.name} className={fuelIcon.color} size={24} />
-                                    {row.unitName}
-                                </h2>
-                                <div className="flex items-center gap-3 mt-2 text-sm">
-                                    <span className="bg-blue-900/30 text-blue-400 border border-blue-900 px-2 py-0.5 rounded font-mono text-xs">{row.zone}</span>
-                                    <span className={`bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-xs flex items-center gap-1 ${fuelIcon.color}`}>
-                                        {fuelIcon.label}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <a 
-                                    href={nordPoolLink} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition flex items-center gap-2 text-sm font-medium"
-                                >
-                                    <Icon name="ExternalLink" size={16} />
-                                    View on Nord Pool
-                                </a>
-                                <button 
-                                    onClick={onClose}
-                                    className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white"
-                                >
-                                    <Icon name="X" size={24} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Content */}
-                        <div className="overflow-y-auto p-6 custom-scrollbar">
-                            <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Capacity Loss (This Period)</div>
-                                     <div className="text-2xl font-bold text-red-400">{row.mw.toFixed(1)} <span className="text-sm text-slate-500">MW</span></div>
-                                </div>
-                                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Specific Time Period</div>
-                                     <div className="text-sm font-mono text-slate-300">
-                                        {row.start.toLocaleString()} - {row.stop.toLocaleString()}
-                                     </div>
-                                </div>
-                            </div>
-
-                            <h3 className="font-bold text-slate-200 mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
-                                <Icon name="FileText" size={16} className="text-purple-400"/>
-                                Details
-                            </h3>
-                            
-                            <div className="bg-slate-800/30 border border-slate-700 rounded-lg p-4 space-y-4">
-                                <div>
-                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Reason</h4>
-                                    <p className="text-slate-200 text-sm">{row.reason || "Not Specified"}</p>
-                                </div>
-                                <div>
-                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Remarks</h4>
-                                    <p className="text-slate-300 text-sm italic">{row.remarks || "No remarks"}</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {/* Footer */}
-                        <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-xl flex justify-end">
-                            <button 
-                                onClick={onClose}
-                                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition border border-slate-700"
-                            >
-                                Close
-                            </button>
-                        </div>
+            const publisherUrl = /^N\d+$/i.test(row.publisher.code) ? "https://umm.nordpoolgroup.com/#/messages?publicationDate=all&companies=" + encodeURIComponent(row.publisher.code) : null;
+            return <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+                <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-slate-700" onClick={event=>event.stopPropagation()}>
+                    <div className="p-6 border-b border-slate-800 flex items-start justify-between gap-3">
+                        <div><h2 className="text-xl font-bold text-white flex items-center gap-2"><Icon name={fuelIcon.name} className={fuelIcon.color} size={24}/>{row.unitName}</h2><p className="text-slate-400 text-xs mt-2">{row.zone} · {fuelIcon.label} · {row.status || "Status not provided"}</p></div>
+                        <div className="flex gap-2 shrink-0"><a href={getNordPoolLink(row)} target="_blank" rel="noopener noreferrer" className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white flex items-center gap-2"><Icon name="ExternalLink" size={16}/>View on Nord Pool</a><button onClick={onClose} aria-label="Close" className="p-2 text-slate-400 hover:text-white"><Icon name="X"/></button></div>
                     </div>
+                    <div className="overflow-y-auto p-6 space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg"><DetailField label="Unavailable capacity (this period)"><span className="text-red-400 font-bold text-xl">{row.hasCapacity ? row.mw.toFixed(1)+" MW" : "Not reported"}</span></DetailField></div>
+                            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg"><DetailField label="Event period (browser local time)">{row.start.toLocaleString()} – {row.stop.toLocaleString()}</DetailField></div>
+                        </div>
+                        <div className="p-4 border border-indigo-900/60 bg-indigo-950/20 rounded-xl">
+                            <h3 className="font-semibold text-indigo-200 mb-3">Publisher & Market Participants</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div><DetailField label="Publisher">{publisherUrl ? <a className="text-blue-300 hover:underline" href={publisherUrl} target="_blank" rel="noopener noreferrer">{displayField(row.publisher.name)}</a> : displayField(row.publisher.name)}</DetailField><p className="text-xs text-slate-500 mt-1">{row.publisher.code || ""}</p></div>
+                                <div><div className="text-[10px] uppercase font-bold text-slate-500 mb-2">Market Participants ({row.marketParticipants.length})</div>{row.marketParticipants.length ? row.marketParticipants.map((p,i)=><div key={i} className="mb-2 border-l-2 border-indigo-700 pl-2">
+                                    {p.acerCode ? <a className="text-sm text-blue-300 hover:underline" target="_blank" rel="noopener noreferrer" href={"https://umm.nordpoolgroup.com/#/messages?publicationDate=all&marketParticipants="+encodeURIComponent(p.acerCode)}>{p.name || p.acerCode}</a> : <span className="text-sm text-white">{p.name || p.code || "—"}</span>}
+                                    <p className="text-xs text-slate-400 font-mono break-all">{[p.acerCode&&"ACER: "+p.acerCode,p.eicCode&&"EIC: "+p.eicCode,p.leiCode&&"LEI: "+p.leiCode,p.code&&"Code: "+p.code].filter(Boolean).join(" · ")}</p>
+                                </div>) : <span className="text-sm text-slate-500">Not provided by API</span>}</div>
+                            </div>
+                        </div>
+                        <div className="p-4 border border-slate-700 rounded-xl bg-slate-800/30">
+                            <h3 className="font-semibold text-white mb-3">Message & Asset Details</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <DetailField label="Message ID">{displayField(row.messageId)}</DetailField><DetailField label="Version">{displayField(row.messageVersion)}</DetailField><DetailField label="Status">{displayField(row.status)}</DetailField>
+                                <DetailField label="Published (UTC)">{formatUtc(row.publicationDate) || "—"}</DetailField><DetailField label="Message type">{displayField(row.messageType)}</DetailField><DetailField label="Category">{displayField(row.messageCategory)}</DetailField>
+                                <DetailField label="Unavailability type">{displayField(row.unavailabilityType)}</DetailField><DetailField label="Reason code">{displayField(row.reasonCode)}</DetailField><DetailField label="Station">{displayField(row.stationName)}</DetailField>
+                                <DetailField label="Unit EIC">{displayField(row.unitEic)}</DetailField><DetailField label="Installed capacity">{row.installedCapacity===null?"—":row.installedCapacity+" MW"}</DetailField><DetailField label="Available capacity">{row.availableCapacity===null?"—":row.availableCapacity+" MW"}</DetailField>
+                                <DetailField label="ACER message IDs">{row.acerMessageIds.join("; ") || "—"}</DetailField>
+                            </div>
+                        </div>
+                        <div className="p-4 border border-slate-700 rounded-xl bg-slate-800/30 space-y-3"><DetailField label="Reason">{displayField(row.reason)}</DetailField><DetailField label="Remarks"><span className="whitespace-pre-wrap">{displayField(row.remarks)}</span></DetailField></div>
+                    </div>
+                    <div className="p-4 border-t border-slate-800 flex justify-end"><button onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white">Close</button></div>
                 </div>
-            );
+            </div>;
         };
 
         function App() {
@@ -460,6 +454,7 @@ const USE_PROXY_FOR_LIVE_API = true;
             // --- SORT STATE ---
             // Default sort: By Start Time Ascending (Chronological)
             const [sortConfig, setSortConfig] = useState({ key: 'start', direction: 'asc' });
+            const [displayLimit, setDisplayLimit] = useState(100);
 
             const [selectedGroup, setSelectedGroup] = useState(null);
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
@@ -656,17 +651,29 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                         if (msgPubDate < pubStartObj) return;
                     }
 
-                    const units = msg.productionUnits || [];
+                    const units = [...(Array.isArray(msg.productionUnits) ? msg.productionUnits : []), ...(Array.isArray(msg.generationUnits) ? msg.generationUnits : []), ...(Array.isArray(msg.consumptionUnits) ? msg.consumptionUnits : [])];
                     const rootFuelType = msg.fuelType;
-                    const rootZone = (msg.biddingZones && msg.biddingZones[0]) || "Unknown";
+                    const rootZone = asText(firstPresent(msg.biddingZones && msg.biddingZones[0], msg.areaName)) || "Unknown";
+                     const publisher = getPublisher(msg);
+                     const marketParticipants = getParticipants(msg);
+                     const participantNames = marketParticipants.map(p => p.name || p.acerCode || p.code).join("; ");
+                     const messageVersion = firstPresent(msg.messageVersion, msg.version, "");
+                     const publicationDate = firstPresent(msg.publicationDate, msg.publishedAt, "");
+                     const status = asText(firstPresent(msg.messageStatus, msg.status));
+                     const messageType = asText(firstPresent(msg.messageType, msg.marketInfoType));
+                     const messageCategory = asText(firstPresent(msg.messageCategory, msg.marketInfoCategory));
+                     const unavailabilityType = asText(firstPresent(msg.typeOfUnavailability, msg.unavailabilityType));
+                     const reasonCode = asText(firstPresent(msg.reasonCode, msg.unavailabilityReasonCode));
+                     const ids = firstPresent(msg.acerRssMessageIds, msg.acerMessageIds, []);
+                     const acerMessageIds = (Array.isArray(ids) ? ids : [ids]).map(asText).filter(Boolean);
 
-                    const processPeriods = (unitName, zone, fuelType, periods, reason, remarks) => {
+                    const processPeriods = (unitName, zone, fuelType, periods, reason, remarks, unit = {}) => {
                          // LOCAL FILTERING LOGIC
                          
                          // 1. Local Search (Multi-term OR logic)
                          if (localSearchText) {
                              const searchTerms = localSearchText.toLowerCase().split(',').map(s => s.trim()).filter(s => s);
-                             const searchContent = `${unitName} ${reason} ${remarks} ${msg.messageId}`.toLowerCase();
+                             const searchContent = [unitName,reason,remarks,msg.messageId,publisher.name,publisher.code,participantNames,status,messageType,...marketParticipants.flatMap(p=>[p.acerCode,p.eicCode,p.leiCode])].join(" ").toLowerCase();
                              const match = searchTerms.some(term => searchContent.includes(term));
                              if (!match) return;
                          }
@@ -678,7 +685,8 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                          const fKey = getFuelKey(fuelType);
                          if (localFuels.length > 0 && !localFuels.includes(fKey)) return;
 
-                         if (!periods || periods.length === 0) {
+                         if (!Array.isArray(periods) || !periods.length) periods = Array.isArray(msg.timePeriods) ? msg.timePeriods : [];
+                          if (!periods || periods.length === 0) {
                              if (msg.eventStart && msg.eventStop) {
                                  periods = [{
                                      eventStart: msg.eventStart,
@@ -695,23 +703,22 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                              const pEnd = new Date(period.eventStop);
                              
                              if (pStart <= pubEndObj && pEnd >= pubStartObj) {
-                                 const mw = parseFloat(period.unavailableCapacity) || 0;
-                                 
-                                 tableRows.push({
-                                     id: `${msg.messageId}-${idx}`,
-                                     messageId: msg.messageId,
-                                     unitName,
-                                     zone,
-                                     fuelType,
-                                     fuelKey: fKey,
-                                     start: pStart,
-                                     stop: pEnd,
-                                     mw,
-                                     reason,
-                                     remarks
-                                 });
-
-                                 totalEventsCount++;
+                                 const rawCapacity = numericOrNull(firstPresent(period.unavailableCapacity, unit.unavailableCapacity, msg.unavailableCapacity));
+                                  const mw = rawCapacity === null ? 0 : rawCapacity;
+                                  tableRows.push({
+                                      id: [msg.messageId, unitName, pStart.toISOString(), idx].join("-"),
+                                      messageId: msg.messageId, messageVersion, publicationDate, status, publisher, publisherName: publisher.name,
+                                      marketParticipants, participantNames, messageType, messageCategory, unavailabilityType, reasonCode, acerMessageIds,
+                                      unitName, unitEic: asText(firstPresent(unit.eicCode, unit.unitEic, unit.eic)),
+                                      stationName: asText(firstPresent(unit.stationName, msg.stationName)),
+                                      zone, fuelType, fuelKey: fKey,
+                                      start: pStart, stop: pEnd, durationMs: pEnd - pStart,
+                                      mw, hasCapacity: rawCapacity !== null,
+                                      installedCapacity: numericOrNull(firstPresent(unit.installedCapacity, msg.installedCapacity)),
+                                      availableCapacity: numericOrNull(firstPresent(period.availableCapacity, unit.availableCapacity, msg.availableCapacity)),
+                                      reason, remarks
+                                  });
+                                  totalEventsCount++;
                                  if (mw > maxFoundMW) maxFoundMW = mw;
                                  
                                  if (!zoneStats[zone]) zoneStats[zone] = { count: 0, mw: 0 };
@@ -739,10 +746,10 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                     if (units.length > 0) {
                         units.forEach(u => {
                             let fType = u.fuelType || rootFuelType;
-                            processPeriods(u.name, u.areaName || rootZone, fType, u.timePeriods, msg.unavailabilityReason, msg.remarks);
+                            processPeriods(asText(firstPresent(u.name, u.unitName, u.stationName)) || "Unknown Unit", asText(u.areaName) || rootZone, fType, u.timePeriods, msg.unavailabilityReason, msg.remarks, u);
                         });
                     } else {
-                        processPeriods("Unknown Unit", rootZone, rootFuelType, null, msg.unavailabilityReason, msg.remarks);
+                        processPeriods(asText(firstPresent(msg.unitName, msg.stationName)) || "Unknown Unit", rootZone, rootFuelType, null, msg.unavailabilityReason, msg.remarks);
                     }
                 });
 
@@ -770,6 +777,62 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                 return { totalMW: maxFoundMW * 1000, totalEvents: totalEventsCount, chartData, zoneStats, sortedDates, tableData: tableRows };
             }, [data, serverPubStart, serverPubEnd, localSearchText, localZone, localFuels, sortConfig]); 
 
+            const exportToExcel = () => {
+                if (!analysis || !analysis.tableData.length) return;
+                if (!window.XLSX) {setError("Excel writer failed to load. Refresh the page."); return;}
+                const rows = analysis.tableData.map(row => ({
+                    "Message ID": excelSafe(row.messageId), "Version": excelSafe(row.messageVersion),
+                    "Status": excelSafe(row.status), "Published (UTC)": excelSafe(formatUtc(row.publicationDate)),
+                    "Publisher": excelSafe(row.publisher.name), "Publisher Code": excelSafe(row.publisher.code),
+                    "Market Participants": excelSafe(row.participantNames),
+                    "ACER Participant Codes": excelSafe(row.marketParticipants.map(p=>p.acerCode).filter(Boolean).join("; ")),
+                    "Participant EIC": excelSafe(row.marketParticipants.map(p=>p.eicCode).filter(Boolean).join("; ")),
+                    "Participant LEI": excelSafe(row.marketParticipants.map(p=>p.leiCode).filter(Boolean).join("; ")),
+                    "Message Type": excelSafe(row.messageType), "Category": excelSafe(row.messageCategory),
+                    "Unavailability Type": excelSafe(row.unavailabilityType), "Reason Code": excelSafe(row.reasonCode),
+                    "Plant / Unit": excelSafe(row.unitName), "Station": excelSafe(row.stationName),
+                    "Unit EIC": excelSafe(row.unitEic), "Zone": excelSafe(row.zone), "Fuel": excelSafe(row.fuelKey),
+                    "Start (UTC)": formatUtc(row.start), "End (UTC)": formatUtc(row.stop),
+                    "Duration Hours": Number((row.durationMs / 3600000).toFixed(2)),
+                    "Unavailable MW": row.hasCapacity ? row.mw : "", "Installed MW": row.installedCapacity ?? "",
+                    "Available MW": row.availableCapacity ?? "", "Reason": excelSafe(row.reason),
+                    "Remarks": excelSafe(row.remarks), "ACER Message IDs": excelSafe(row.acerMessageIds.join("; ")),
+                    "Nord Pool Link": getNordPoolLink(row)
+                }));
+                const book = XLSX.utils.book_new();
+                const sheet = XLSX.utils.json_to_sheet(rows);
+                sheet["!cols"] = Object.keys(rows[0]).map(k=>({wch: /Remarks|Reason$/.test(k)?55:/Participant|Link/.test(k)?40:22}));
+                sheet["!autofilter"]={ref:sheet["!ref"]};
+                const linkCol=Object.keys(rows[0]).indexOf("Nord Pool Link");
+                rows.forEach((row,i)=>{
+                    const cell=sheet[XLSX.utils.encode_cell({r:i+1,c:linkCol})];
+                    if(cell) cell.l={Target:row["Nord Pool Link"],Tooltip:"Open in Nord Pool"};
+                });
+                XLSX.utils.book_append_sheet(book,sheet,"Event Periods");
+                const unique = new Map();
+                rows.forEach(row => {const k=row["Message ID"]+"/"+row["Version"];if(!unique.has(k))unique.set(k,{
+                    "Message ID":row["Message ID"],"Version":row["Version"],"Status":row["Status"],
+                    "Publisher":row["Publisher"],"Market Participants":row["Market Participants"],
+                    "Published (UTC)":row["Published (UTC)"],"Message Type":row["Message Type"],
+                    "Nord Pool Link":row["Nord Pool Link"]
+                });});
+                XLSX.utils.book_append_sheet(book,XLSX.utils.json_to_sheet([...unique.values()]),"Unique Messages");
+                const info=XLSX.utils.aoa_to_sheet([
+                    ["Field","Value"],["Exported UTC",formatUtc(new Date())],["Source",useMock?"DEMO":"Nord Pool UMM API via proxy"],
+                    ["Publication start",serverPubStart],["Publication end",serverPubEnd],
+                    ["API keyword",serverSearchText],["Local search",localSearchText],
+                    ["Zone",localZone||"All"],["Fuels",localFuels.join("; ")||"All"],
+                    ["Rows exported",rows.length],["Unique message versions",unique.size],
+                    ["Grain","Each period is a separate row; one message can have multiple periods"],
+                    ["Missing capacity","Blank means not reported, NOT 0 MW"],
+                    ["Time basis","UTC timestamps stored as text to avoid local timezone shifts"],
+                    ["Export scope","All filtered and sorted rows; not only visible page"]
+                ]);
+                info["!cols"]=[{wch:32},{wch:90}];
+                XLSX.utils.book_append_sheet(book,info,"Export Info");
+                XLSX.writeFile(book,"NordPool_UMM_"+serverPubStart+"_to_"+serverPubEnd+".xlsx");
+            };
+            
             // Helper to render sort icon
             const SortIcon = ({ colKey }) => {
                 if (sortConfig.key !== colKey) return null;
@@ -994,32 +1057,38 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                                             <Icon name="Layers" className="text-purple-400" />
                                             Event List (Periods)
                                         </h3>
-                                        <div className="text-xs bg-purple-900/30 text-purple-300 border border-purple-900 px-3 py-1.5 rounded-lg flex items-center gap-2">
-                                            <Icon name="Info" size={14} />
-                                            Click headers to sort
+                                        <div className="flex flex-wrap gap-2 items-center">
+                                            <span className="text-xs text-purple-300">Click headers to sort</span>
+                                            <button onClick={exportToExcel} className="bg-emerald-700 hover:bg-emerald-600 px-4 py-2 text-white text-sm font-semibold rounded-lg flex items-center gap-2">
+                                                <Icon name="Download" size={16}/> Export Excel ({analysis.tableData.length})
+                                            </button>
                                         </div>
                                     </div>
                                     
                                     <div className="overflow-x-auto max-h-[600px] border border-slate-800 rounded-xl bg-slate-900/40 custom-scrollbar">
-                                        <table className="min-w-full text-sm">
+                                        <table className="min-w-[1800px] w-full text-sm">
                                             <thead className="sticky top-0 bg-slate-900 shadow-xl z-10">
                                                 <tr className="text-left border-b border-slate-800 text-slate-400 font-bold uppercase text-xs tracking-wider">
                                                     <th className="py-4 px-4 w-10 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('fuelKey')}>Type <SortIcon colKey="fuelKey"/></th>
                                                     <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('unitName')}>Plant / Zone <SortIcon colKey="unitName"/></th>
+                                                     <th className="py-4 px-4 cursor-pointer hover:text-white" onClick={() => requestSort('publisherName')}>Publisher <SortIcon colKey="publisherName"/></th>
+                                                     <th className="py-4 px-4 cursor-pointer hover:text-white" onClick={() => requestSort('participantNames')}>Market Participants <SortIcon colKey="participantNames"/></th>
                                                     <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('start')}>Start <SortIcon colKey="start"/></th>
                                                     <th className="py-4 px-4 cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('stop')}>End (Est.) <SortIcon colKey="stop"/></th>
                                                     <th className="py-4 px-4 text-center cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('durationMs')}>Duration <SortIcon colKey="durationMs"/></th>
                                                     <th className="py-4 px-4 text-right cursor-pointer hover:text-white transition-colors" onClick={() => requestSort('mw')}>Max Loss <SortIcon colKey="mw"/></th>
-                                                    <th className="py-4 px-4">Reason</th>
+                                                    <th className="py-4 px-4 cursor-pointer hover:text-white" onClick={() => requestSort("status")}>Status <SortIcon colKey="status"/></th>
+                                                     <th className="py-4 px-4 cursor-pointer hover:text-white" onClick={() => requestSort("publicationDate")}>Published <SortIcon colKey="publicationDate"/></th>
+                                                     <th className="py-4 px-4">Reason</th>
                                                     <th className="py-4 px-4 w-10"></th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-800">
-                                                {analysis.tableData.slice(0, 100).map((row, i) => {
+                                                {analysis.tableData.slice(0, displayLimit).map((row, i) => {
                                                     const durationMs = row.stop - row.start;
                                                     // Duration in hours
                                                     const durationHours = (durationMs / (1000 * 60 * 60)).toFixed(1);
-                                                    const link = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
+                                                    const link = getNordPoolLink(row);
                                                     const iconConfig = getFuelIconConfig(row.fuelKey);
 
                                                     return (
@@ -1041,15 +1110,19 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                                                                     <span className="text-[10px] text-slate-500 bg-slate-950 w-fit px-1.5 py-0.5 rounded mt-1 border border-slate-800">{row.zone}</span>
                                                                 </div>
                                                             </td>
-                                                            <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.start.toLocaleString()}</td>
+                                                            <td className="py-4 px-4 text-xs text-slate-300 max-w-[200px]"><div className="truncate" title={row.publisher.name || "Not provided"}>{row.publisher.name || "—"}</div><div className="text-[10px] text-slate-500">{row.publisher.code}</div></td>
+                                                             <td className="py-4 px-4 text-xs text-slate-300 max-w-[270px]"><div className="truncate" title={row.participantNames}>{row.participantNames || "—"}</div><div className="text-[10px] text-slate-500 truncate">{row.marketParticipants.map(p=>p.acerCode).filter(Boolean).join("; ")}</div></td>
+                                                             <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.start.toLocaleString()}</td>
                                                             <td className="py-4 px-4 font-mono text-slate-400 text-xs">{row.stop.toLocaleString()}</td>
                                                             <td className="py-4 px-4 text-center">
                                                                 <span className={`px-2 py-1 rounded text-xs font-bold ${Number(durationHours) > 24 ? 'bg-red-900/30 text-red-400 border border-red-900/50' : 'bg-emerald-900/30 text-emerald-400 border border-emerald-900/50'}`}>
                                                                     {durationHours} Hours
                                                                 </span>
                                                             </td>
-                                                            <td className="py-4 px-4 text-right font-bold text-slate-200">{row.mw.toFixed(0)} <span className="text-slate-500 text-xs font-normal">MW</span></td>
-                                                            <td className="py-4 px-4 text-slate-400 text-xs max-w-xs truncate opacity-70 group-hover:opacity-100 transition-opacity">
+                                                            <td className="py-4 px-4 text-right font-bold text-slate-200">{row.hasCapacity ? row.mw.toFixed(0) : "—"} {row.hasCapacity && <span className="text-slate-500 text-xs font-normal">MW</span>}</td>
+                                                            <td className="py-4 px-4 text-xs text-slate-300">{row.status || "—"}</td>
+                                                             <td className="py-4 px-4 text-xs font-mono text-slate-400 whitespace-nowrap">{formatUtc(row.publicationDate) || "—"}</td>
+                                                             <td className="py-4 px-4 text-slate-400 text-xs max-w-xs truncate opacity-70 group-hover:opacity-100 transition-opacity">
                                                                 {row.reason || row.remarks || "-"}
                                                             </td>
                                                             <td className="py-4 px-4" onClick={(e) => e.stopPropagation()}>
@@ -1070,7 +1143,7 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                                         </table>
                                     </div>
                                     <div className="text-center mt-4 text-xs text-slate-600 uppercase tracking-widest">
-                                        Showing: First 100 Records
+                                        Showing {Math.min(displayLimit,analysis.tableData.length)} of {analysis.tableData.length} filtered period rows {displayLimit < analysis.tableData.length && <button onClick={()=>setDisplayLimit(v=>v+100)} className="ml-3 text-blue-400 hover:text-blue-300">Show 100 more</button>}
                                     </div>
                                 </div>
                             </div>
