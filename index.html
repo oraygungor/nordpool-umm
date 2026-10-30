@@ -387,92 +387,48 @@ const USE_PROXY_FOR_LIVE_API = true;
             );
         };
 
-        const EventDetailModal = ({ row, onClose }) => {
+
+        const DetailField = ({label, children}) => <div className="min-w-0"><div className="text-[10px] uppercase font-bold tracking-wide text-slate-500 mb-1">{label}</div><div className="text-sm text-slate-200 break-words">{children === null || children === undefined || children === "" ? "—" : children}</div></div>;
+        const EventDetailModal = ({row,onClose}) => {
             if (!row) return null;
-
-            const nordPoolLink = `https://umm.nordpoolgroup.com/#/messages/${row.messageId}`;
             const fuelIcon = getFuelIconConfig(row.fuelKey);
-
-            return (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in">
-                    <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-slate-700">
-                        {/* Header */}
-                        <div className="p-6 border-b border-slate-800 flex items-start justify-between bg-slate-900 rounded-t-2xl">
-                            <div>
-                                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                                    <Icon name={fuelIcon.name} className={fuelIcon.color} size={24} />
-                                    {row.unitName}
-                                </h2>
-                                <div className="flex items-center gap-3 mt-2 text-sm">
-                                    <span className="bg-blue-900/30 text-blue-400 border border-blue-900 px-2 py-0.5 rounded font-mono text-xs">{row.zone}</span>
-                                    <span className={`bg-slate-800 border border-slate-700 px-2 py-0.5 rounded text-xs flex items-center gap-1 ${fuelIcon.color}`}>
-                                        {fuelIcon.label}
-                                    </span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <a 
-                                    href={nordPoolLink} 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="p-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg transition flex items-center gap-2 text-sm font-medium"
-                                >
-                                    <Icon name="ExternalLink" size={16} />
-                                    View on Nord Pool
-                                </a>
-                                <button 
-                                    onClick={onClose}
-                                    className="p-2 hover:bg-slate-800 rounded-full transition text-slate-400 hover:text-white"
-                                >
-                                    <Icon name="X" size={24} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Content */}
-                        <div className="overflow-y-auto p-6 custom-scrollbar">
-                            <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Capacity Loss (This Period)</div>
-                                     <div className="text-2xl font-bold text-red-400">{row.mw.toFixed(1)} <span className="text-sm text-slate-500">MW</span></div>
-                                </div>
-                                <div className="p-4 bg-slate-800/50 rounded-lg border border-slate-700/50">
-                                     <div className="text-[10px] text-slate-500 uppercase font-bold mb-1 tracking-wider">Specific Time Period</div>
-                                     <div className="text-sm font-mono text-slate-300">
-                                        {row.start.toLocaleString()} - {row.stop.toLocaleString()}
-                                     </div>
-                                </div>
-                            </div>
-
-                            <h3 className="font-bold text-slate-200 mb-4 flex items-center gap-2 text-sm uppercase tracking-wide">
-                                <Icon name="FileText" size={16} className="text-purple-400"/>
-                                Details
-                            </h3>
-                            
-                            <div className="bg-slate-800/30 border border-slate-700 rounded-lg p-4 space-y-4">
-                                <div>
-                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Reason</h4>
-                                    <p className="text-slate-200 text-sm">{row.reason || "Not Specified"}</p>
-                                </div>
-                                <div>
-                                    <h4 className="text-xs text-slate-500 uppercase font-bold mb-1">Remarks</h4>
-                                    <p className="text-slate-300 text-sm italic">{row.remarks || "No remarks"}</p>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        {/* Footer */}
-                        <div className="p-4 border-t border-slate-800 bg-slate-900 rounded-b-xl flex justify-end">
-                            <button 
-                                onClick={onClose}
-                                className="px-5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg transition border border-slate-700"
-                            >
-                                Close
-                            </button>
-                        </div>
+            const publisherUrl = /^N\d+$/i.test(row.publisher.code) ? "https://umm.nordpoolgroup.com/#/messages?publicationDate=all&companies=" + encodeURIComponent(row.publisher.code) : null;
+            return <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4" onClick={onClose}>
+                <div className="bg-slate-900 rounded-2xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col border border-slate-700" onClick={event=>event.stopPropagation()}>
+                    <div className="p-6 border-b border-slate-800 flex items-start justify-between gap-3">
+                        <div><h2 className="text-xl font-bold text-white flex items-center gap-2"><Icon name={fuelIcon.name} className={fuelIcon.color} size={24}/>{row.unitName}</h2><p className="text-slate-400 text-xs mt-2">{row.zone} · {fuelIcon.label} · {row.status || "Status not provided"}</p></div>
+                        <div className="flex gap-2 shrink-0"><a href={getNordPoolLink(row)} target="_blank" rel="noopener noreferrer" className="p-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm text-white flex items-center gap-2"><Icon name="ExternalLink" size={16}/>View on Nord Pool</a><button onClick={onClose} aria-label="Close" className="p-2 text-slate-400 hover:text-white"><Icon name="X"/></button></div>
                     </div>
+                    <div className="overflow-y-auto p-6 space-y-5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg"><DetailField label="Unavailable capacity (this period)"><span className="text-red-400 font-bold text-xl">{row.hasCapacity ? row.mw.toFixed(1)+" MW" : "Not reported"}</span></DetailField></div>
+                            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg"><DetailField label="Event period (browser local time)">{row.start.toLocaleString()} – {row.stop.toLocaleString()}</DetailField></div>
+                        </div>
+                        <div className="p-4 border border-indigo-900/60 bg-indigo-950/20 rounded-xl">
+                            <h3 className="font-semibold text-indigo-200 mb-3">Publisher & Market Participants</h3>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div><DetailField label="Publisher">{publisherUrl ? <a className="text-blue-300 hover:underline" href={publisherUrl} target="_blank" rel="noopener noreferrer">{displayField(row.publisher.name)}</a> : displayField(row.publisher.name)}</DetailField><p className="text-xs text-slate-500 mt-1">{row.publisher.code || ""}</p></div>
+                                <div><div className="text-[10px] uppercase font-bold text-slate-500 mb-2">Market Participants ({row.marketParticipants.length})</div>{row.marketParticipants.length ? row.marketParticipants.map((p,i)=><div key={i} className="mb-2 border-l-2 border-indigo-700 pl-2">
+                                    {p.acerCode ? <a className="text-sm text-blue-300 hover:underline" target="_blank" rel="noopener noreferrer" href={"https://umm.nordpoolgroup.com/#/messages?publicationDate=all&marketParticipants="+encodeURIComponent(p.acerCode)}>{p.name || p.acerCode}</a> : <span className="text-sm text-white">{p.name || p.code || "—"}</span>}
+                                    <p className="text-xs text-slate-400 font-mono break-all">{[p.acerCode&&"ACER: "+p.acerCode,p.eicCode&&"EIC: "+p.eicCode,p.leiCode&&"LEI: "+p.leiCode,p.code&&"Code: "+p.code].filter(Boolean).join(" · ")}</p>
+                                </div>) : <span className="text-sm text-slate-500">Not provided by API</span>}</div>
+                            </div>
+                        </div>
+                        <div className="p-4 border border-slate-700 rounded-xl bg-slate-800/30">
+                            <h3 className="font-semibold text-white mb-3">Message & Asset Details</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                                <DetailField label="Message ID">{displayField(row.messageId)}</DetailField><DetailField label="Version">{displayField(row.messageVersion)}</DetailField><DetailField label="Status">{displayField(row.status)}</DetailField>
+                                <DetailField label="Published (UTC)">{formatUtc(row.publicationDate) || "—"}</DetailField><DetailField label="Message type">{displayField(row.messageType)}</DetailField><DetailField label="Category">{displayField(row.messageCategory)}</DetailField>
+                                <DetailField label="Unavailability type">{displayField(row.unavailabilityType)}</DetailField><DetailField label="Reason code">{displayField(row.reasonCode)}</DetailField><DetailField label="Station">{displayField(row.stationName)}</DetailField>
+                                <DetailField label="Unit EIC">{displayField(row.unitEic)}</DetailField><DetailField label="Installed capacity">{row.installedCapacity===null?"—":row.installedCapacity+" MW"}</DetailField><DetailField label="Available capacity">{row.availableCapacity===null?"—":row.availableCapacity+" MW"}</DetailField>
+                                <DetailField label="ACER message IDs">{row.acerMessageIds.join("; ") || "—"}</DetailField>
+                            </div>
+                        </div>
+                        <div className="p-4 border border-slate-700 rounded-xl bg-slate-800/30 space-y-3"><DetailField label="Reason">{displayField(row.reason)}</DetailField><DetailField label="Remarks"><span className="whitespace-pre-wrap">{displayField(row.remarks)}</span></DetailField></div>
+                    </div>
+                    <div className="p-4 border-t border-slate-800 flex justify-end"><button onClick={onClose} className="px-5 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white">Close</button></div>
                 </div>
-            );
+            </div>;
         };
 
         function App() {
