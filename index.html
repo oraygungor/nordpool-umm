@@ -48,6 +48,16 @@
             background: #475569; 
         }
         
+        /* Dark appearance without a paid/keyed basemap provider. */
+        .umm-dark-map-tiles {
+            filter: brightness(0.75) invert(1) contrast(0.9) hue-rotate(180deg);
+        }
+        .leaflet-control-attribution {
+            background: rgba(15, 23, 42, 0.9) !important;
+            color: #cbd5e1 !important;
+            font-size: 10px !important;
+        }
+        .leaflet-control-attribution a { color: #93c5fd !important; }
         /* Map Popup Customization */
         .leaflet-popup-content-wrapper, .leaflet-popup-tip {
             background: #1e293b;
@@ -324,12 +334,16 @@ const USE_PROXY_FOR_LIVE_API = true;
                     try {
                         mapInstance.current = L.map(mapRef.current, {
                             zoomControl: false,
-                            attributionControl: false
+                            attributionControl: true
                         }).setView([62.0, 15.0], 4);
-                        
-                        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+
+                        // OSM standard raster tiles require no API key. Leaflet keeps requests
+                        // to the visible viewport; attribution is required by OSM's tile policy.
+                        mapInstance.current.attributionControl.setPosition('bottomleft');
+                        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
                             maxZoom: 19,
-                            attribution: '&copy; OpenStreetMap &copy; CARTO'
+                            className: 'umm-dark-map-tiles',
+                            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>'
                         }).addTo(mapInstance.current);
                     } catch (e) { console.error("Map init error:", e); return; }
                 }
