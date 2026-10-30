@@ -498,6 +498,7 @@ const USE_PROXY_FOR_LIVE_API = true;
             // --- SORT STATE ---
             // Default sort: By Start Time Ascending (Chronological)
             const [sortConfig, setSortConfig] = useState({ key: 'start', direction: 'asc' });
+            const [displayLimit, setDisplayLimit] = useState(100);
 
             const [selectedGroup, setSelectedGroup] = useState(null);
             const [lastFetchedDates, setLastFetchedDates] = useState({ start: null, end: null });
@@ -694,17 +695,29 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                         if (msgPubDate < pubStartObj) return;
                     }
 
-                    const units = msg.productionUnits || [];
+                    const units = [...(Array.isArray(msg.productionUnits) ? msg.productionUnits : []), ...(Array.isArray(msg.generationUnits) ? msg.generationUnits : []), ...(Array.isArray(msg.consumptionUnits) ? msg.consumptionUnits : [])];
                     const rootFuelType = msg.fuelType;
-                    const rootZone = (msg.biddingZones && msg.biddingZones[0]) || "Unknown";
+                    const rootZone = asText(firstPresent(msg.biddingZones && msg.biddingZones[0], msg.areaName)) || "Unknown";
+                     const publisher = getPublisher(msg);
+                     const marketParticipants = getParticipants(msg);
+                     const participantNames = marketParticipants.map(p => p.name || p.acerCode || p.code).join("; ");
+                     const messageVersion = firstPresent(msg.messageVersion, msg.version, "");
+                     const publicationDate = firstPresent(msg.publicationDate, msg.publishedAt, "");
+                     const status = asText(firstPresent(msg.messageStatus, msg.status));
+                     const messageType = asText(firstPresent(msg.messageType, msg.marketInfoType));
+                     const messageCategory = asText(firstPresent(msg.messageCategory, msg.marketInfoCategory));
+                     const unavailabilityType = asText(firstPresent(msg.typeOfUnavailability, msg.unavailabilityType));
+                     const reasonCode = asText(firstPresent(msg.reasonCode, msg.unavailabilityReasonCode));
+                     const ids = firstPresent(msg.acerRssMessageIds, msg.acerMessageIds, []);
+                     const acerMessageIds = (Array.isArray(ids) ? ids : [ids]).map(asText).filter(Boolean);
 
-                    const processPeriods = (unitName, zone, fuelType, periods, reason, remarks) => {
+                    const processPeriods = (unitName, zone, fuelType, periods, reason, remarks, unit = {}) => {
                          // LOCAL FILTERING LOGIC
                          
                          // 1. Local Search (Multi-term OR logic)
                          if (localSearchText) {
                              const searchTerms = localSearchText.toLowerCase().split(',').map(s => s.trim()).filter(s => s);
-                             const searchContent = `${unitName} ${reason} ${remarks} ${msg.messageId}`.toLowerCase();
+                             const searchContent = [unitName,reason,remarks,msg.messageId,publisher.name,publisher.code,participantNames,status,messageType,...marketParticipants.flatMap(p=>[p.acerCode,p.eicCode,p.leiCode])].join(" ").toLowerCase();
                              const match = searchTerms.some(term => searchContent.includes(term));
                              if (!match) return;
                          }
@@ -716,7 +729,8 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                          const fKey = getFuelKey(fuelType);
                          if (localFuels.length > 0 && !localFuels.includes(fKey)) return;
 
-                         if (!periods || periods.length === 0) {
+                         if (!Array.isArray(periods) || !periods.length) periods = Array.isArray(msg.timePeriods) ? msg.timePeriods : [];
+                          if (!periods || periods.length === 0) {
                              if (msg.eventStart && msg.eventStop) {
                                  periods = [{
                                      eventStart: msg.eventStart,
@@ -733,23 +747,22 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                              const pEnd = new Date(period.eventStop);
                              
                              if (pStart <= pubEndObj && pEnd >= pubStartObj) {
-                                 const mw = parseFloat(period.unavailableCapacity) || 0;
-                                 
-                                 tableRows.push({
-                                     id: `${msg.messageId}-${idx}`,
-                                     messageId: msg.messageId,
-                                     unitName,
-                                     zone,
-                                     fuelType,
-                                     fuelKey: fKey,
-                                     start: pStart,
-                                     stop: pEnd,
-                                     mw,
-                                     reason,
-                                     remarks
-                                 });
-
-                                 totalEventsCount++;
+                                 const rawCapacity = numericOrNull(firstPresent(period.unavailableCapacity, unit.unavailableCapacity, msg.unavailableCapacity));
+                                  const mw = rawCapacity === null ? 0 : rawCapacity;
+                                  tableRows.push({
+                                      id: [msg.messageId, unitName, pStart.toISOString(), idx].join("-"),
+                                      messageId: msg.messageId, messageVersion, publicationDate, status, publisher, publisherName: publisher.name,
+                                      marketParticipants, participantNames, messageType, messageCategory, unavailabilityType, reasonCode, acerMessageIds,
+                                      unitName, unitEic: asText(firstPresent(unit.eicCode, unit.unitEic, unit.eic)),
+                                      stationName: asText(firstPresent(unit.stationName, msg.stationName)),
+                                      zone, fuelType, fuelKey: fKey,
+                                      start: pStart, stop: pEnd, durationMs: pEnd - pStart,
+                                      mw, hasCapacity: rawCapacity !== null,
+                                      installedCapacity: numericOrNull(firstPresent(unit.installedCapacity, msg.installedCapacity)),
+                                      availableCapacity: numericOrNull(firstPresent(period.availableCapacity, unit.availableCapacity, msg.availableCapacity)),
+                                      reason, remarks
+                                  });
+                                  totalEventsCount++;
                                  if (mw > maxFoundMW) maxFoundMW = mw;
                                  
                                  if (!zoneStats[zone]) zoneStats[zone] = { count: 0, mw: 0 };
@@ -777,10 +790,10 @@ if (total != null && total > MAX_TOTAL_TO_LOAD) {
                     if (units.length > 0) {
                         units.forEach(u => {
                             let fType = u.fuelType || rootFuelType;
-                            processPeriods(u.name, u.areaName || rootZone, fType, u.timePeriods, msg.unavailabilityReason, msg.remarks);
+                            processPeriods(asText(firstPresent(u.name, u.unitName, u.stationName)) || "Unknown Unit", asText(u.areaName) || rootZone, fType, u.timePeriods, msg.unavailabilityReason, msg.remarks, u);
                         });
                     } else {
-                        processPeriods("Unknown Unit", rootZone, rootFuelType, null, msg.unavailabilityReason, msg.remarks);
+                        processPeriods(asText(firstPresent(msg.unitName, msg.stationName)) || "Unknown Unit", rootZone, rootFuelType, null, msg.unavailabilityReason, msg.remarks);
                     }
                 });
 
